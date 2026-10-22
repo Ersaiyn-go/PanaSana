@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Учёт</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="theme-color" content="#1f6feb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Учёт">
+<style>
+:root{--bg:#f6f6f4;--card:#fff;--tx:#1a1a1a;--mut:#777;--ac:#1f6feb;--bd:#e2e2de;--red:#c0392b;--grn:#1e8e4e}
+@media (prefers-color-scheme:dark){:root{--bg:#141414;--card:#202020;--tx:#eee;--mut:#999;--bd:#333;--ac:#4c8dff;--red:#ff6b5b;--grn:#4cc38a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.4 -apple-system,system-ui,"Segoe UI",sans-serif;padding:calc(12px + env(safe-area-inset-top,0px)) 12px calc(12px + env(safe-area-inset-bottom,0px));max-width:560px;margin:0 auto}
+#nav{display:flex;gap:6px;margin-bottom:12px}
+#nav button{flex:1;padding:10px 2px;font-size:14px}
+#nav .on{background:var(--ac);color:#fff;border-color:var(--ac)}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px;margin-bottom:12px}
+textarea,input,select{width:100%;border:1px solid var(--bd);border-radius:10px;padding:10px;font:inherit;background:var(--bg);color:var(--tx);margin-top:6px}
+textarea{height:150px}
+button{font:inherit;border:1px solid var(--bd);background:var(--card);color:var(--tx);border-radius:10px;padding:11px;cursor:pointer}
+button.p{background:var(--ac);color:#fff;border-color:var(--ac);width:100%;margin-top:10px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.amt{font-size:30px;font-weight:700}
+.neg{color:var(--red)}.pos{color:var(--grn)}.mut{color:var(--mut);font-size:14px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--bd)}
+.row:last-child{border:0}
+.bar{height:8px;background:var(--bd);border-radius:4px;overflow:hidden;margin:3px 0 8px}
+.bar i{display:block;height:100%;background:var(--ac)}
+.cols{display:flex;align-items:flex-end;gap:3px;height:90px;margin-top:8px}
+.cols i{flex:1;background:var(--ac);border-radius:3px 3px 0 0;min-height:2px}
+.x{padding:2px 9px;color:var(--mut)}
+h3{margin:0 0 6px;font-size:16px}
+summary{cursor:pointer}
+input[type=file]{display:none}
+.btn{display:block;text-align:center;border:1px solid var(--bd);background:var(--card);border-radius:10px;padding:11px;margin-top:10px;cursor:pointer}
+#lock{position:fixed;inset:0;background:var(--bg);z-index:99;display:none;flex-direction:column;align-items:center;justify-content:center}
+.kp{display:grid;grid-template-columns:repeat(3,76px);gap:12px;margin-top:10px}
+.kp button{height:64px;border-radius:50%;font-size:24px;padding:0}
+.sm{display:flex;gap:8px;margin-top:10px}.sm button{flex:1}
+</style>
+</head>
+<body>
+<div id="nav"></div>
+<div id="app"></div>
+<div id="lock"></div>
+<script>
+const SUB=["Развлечения","Дорога","Еда","Одежда","Другое"];
+let S={acc:["Основной","Личное","Доставка","Бонус","Штраф","На сайт","Офис"].map(n=>({n,o:0})),tx:[]};
+let cfg={url:"",key:""},q=[],tab="sort",items=[],i=0,cur={s:"acc"},msg="",draft="",st="",busy=false;
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt=n=>Math.round(Math.abs(n)).toLocaleString("ru-RU");
+const sg=n=>(n<0?"−":"+")+fmt(n)+" ₸";
+const cls=n=>n<0?"neg":"pos";
+const today=()=>new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10);
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+let day=today();
+
+function load(){
+  try{const x=JSON.parse(localStorage.getItem("led2")||"null");if(x&&x.acc)S=x}catch(e){}
+  try{const c=JSON.parse(localStorage.getItem("cfg2")||"null");if(c)cfg=c}catch(e){}
+  try{q=JSON.parse(localStorage.getItem("q2")||"[]")}catch(e){}
+}
+function persist(){try{localStorage.setItem("led2",JSON.stringify(S));localStorage.setItem("q2",JSON.stringify(q))}catch(e){}}
+function op(o){q.push(o);persist();sync()}
+
+async function post(o){
+  const r=await fetch(cfg.url,{method:"POST",body:JSON.stringify({key:cfg.key,...o})});
+  const j=await r.json();if(!j.ok)throw new Error(j.error||"ошибка");
+}
+async function pull(){
+  const r=await fetch(cfg.url+(cfg.url.includes("?")?"&":"?")+"key="+encodeURIComponent(cfg.key));
+  const j=await r.json();if(j.error)throw new Error(j.error==="key"?"неверный пароль":j.error);
+  return j;
+}
+const clean=t=>{const o={id:t.id,d:t.d,a:t.a,n:t.n};["acc","sub","k","p"].forEach(f=>{if(t[f])o[f]=t[f]});return o};
+async function sync(manual){
+  if(!cfg.url||busy)return;
+  if(!navigator.onLine){st="Нет сети: данные на телефоне, отправлю позже";if(manual)render();return}
+  busy=true;
+  try{
+    while(q.length){await post(q[0]);q.shift();persist()}
+    const j=await pull();
+    if(!q.length){
+      if(j.acc&&j.acc.length)S.acc=j.acc;
+      S.tx=j.tx.map(clean);persist();
+    }
+    st="Синхронизировано в "+new Date().toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"});
+  }catch(e){st="Ошибка: "+e.message}
+  busy=false;
+  if(!(tab==="sort"&&items.length))render();
+}
+function addTx(list){S.tx.push(...list);op({action:"add",tx:list})}
+
+function parse(t){
+  return t.split("\n").map(l=>l.trim()).filter(Boolean).map(l=>{
+    let d=null;const dm=l.match(/^(\d{4}-\d{2}-\d{2})\s+(.*)$/);if(dm){d=dm[1];l=dm[2]}
+    const m=l.match(/^([+\-−–]?)\s*(\d[\d\s.,]*)\s+(.+)$/);
+    if(!m)return null;
+    const n=parseFloat(m[2].replace(/\s/g,"").replace(",","."));
+    if(isNaN(n))return null;
+    return{d,a:(m[1]===""||m[1]==="+")?n:-n,n:m[3].replace(/\s*\([+\-]\)\s*$/,"").replace(/^(.+?)\.?\s*перевод.*$/i,"$1").trim()};
+  }).filter(Boolean);
+}
+function go(t){tab=t;render()}
+function render(){
+  const T=[["sort","Разбор"],["acc","Счета"],["an","Анализ"],["debt","Қарыз"],["set","⚙"]];
+  $("#nav").innerHTML=T.map(([k,l])=>`<button class="${tab==k?"on":""}" onclick="go('${k}')">${l}</button>`).join("");
+  $("#app").innerHTML=({sort:vSort,acc:vAcc,an:vAn,debt:vDebt,set:vSet})[tab]();
+}
+
+/* ---- Разбор ---- */
+function vSort(){
+  if(items.length&&i<items.length){
+    const it=items[i],neg=it.a<0;let b;
+    if(cur.s==="sub")b=`<div class="mut">Личное: что именно?</div><div class="grid">${SUB.map((s,x)=>`<button onclick="pickSub(${x})">${s}</button>`).join("")}</div>`;
+    else if(cur.s==="who")b=`<div class="mut">${neg?"Кому дали в долг?":"Кто вернул долг?"}</div><input id="who" value="${esc(it.n)}"><button class="p" onclick="pickWho()">Сохранить</button>`;
+    else b=`<div class="grid">${S.acc.map((a,x)=>`<button onclick="pickAcc(${x})">${esc(a.n)}</button>`).join("")}<button onclick="pickDebt()">🤝 ${neg?"Қарызға бердім":"Қарыз қайтты"}</button></div>`;
+    return `<div class="card"><div class="mut">${it.d} · ${i+1} из ${items.length}</div><div class="bar"><i style="width:${i/items.length*100}%"></i></div>
+    <div class="amt ${cls(it.a)}">${sg(it.a)}</div><div>${esc(it.n)}</div>${b}
+    <div class="sm"><button onclick="back()" ${i?"":"disabled"}>← Назад</button><button onclick="skip()">Пропустить</button></div></div>`;
+  }
+  return `<div class="card">${msg?`<div class="pos" style="margin-bottom:8px">${esc(msg)}</div>`:""}
+  <div class="mut">Дата выписки</div><input type="date" id="dt" value="${day}">
+  <div class="mut" style="margin-top:8px">Операции, каждая с новой строки</div>
+  <textarea id="t" placeholder="-6000 Лаура У.Перевод (-)&#10;+25000 Айгерим К.Перевод (+)">${esc(draft)}</textarea>
+  <label class="btn">📄 Загрузить PDF-выписку (Kaspi)<input type="file" accept="application/pdf" onchange="pickPdf(this)"></label>
+  <button class="p" onclick="start()">Начать разбор</button></div>`;
+}
+function start(){
+  draft=$("#t").value;day=$("#dt").value||today();
+  const p=parse(draft);
+  if(!p.length){$("#t").insertAdjacentHTML("beforebegin",'<div class="neg">Не нашёл операций. Формат: -6000 Имя Перевод</div>');return}
+  const have={};S.tx.forEach(t=>{const k=t.d+"|"+t.a+"|"+t.n;have[k]=(have[k]||0)+1});
+  let dup=0;
+  items=p.map(x=>({...x,d:x.d||day})).filter(x=>{const k=x.d+"|"+x.a+"|"+x.n;if(have[k]>0){have[k]--;dup++;return false}return true});
+  i=0;cur={s:"acc"};msg=dup?`Пропущено уже сохранённых: ${dup}`:"";
+  render();
+}
+function nxt(){i++;cur={s:"acc"};if(i>=items.length)finish();else render()}
+function pickAcc(x){const it=items[i],a=S.acc[x].n;it.acc=a;if(it.a<0&&a==="Личное"){cur.s="sub";render()}else nxt()}
+function pickSub(x){items[i].sub=SUB[x];nxt()}
+function pickDebt(){const it=items[i];it.k=it.a<0?"lend":"repay";it.acc=S.acc[0].n;cur.s="who";render()}
+function pickWho(){const it=items[i];it.p=$("#who").value.trim()||it.n;nxt()}
+function skip(){items[i].skip=true;nxt()}
+function back(){if(i>0){i--;const it=items[i];["skip","k","sub","p","acc"].forEach(f=>delete it[f]);cur={s:"acc"};render()}}
+function finish(){
+  const ok=items.filter(t=>!t.skip).map(({skip,...t})=>({...t,id:uid()}));
+  addTx(ok);
+  msg=`Сохранено операций: ${ok.length}. Смотрите вкладку «Счета».`;items=[];draft="";render();
+}
+
+/* ---- PDF ---- */
+function loadPdfJs(){
+  return new Promise((ok,no)=>{
+    if(window.pdfjsLib)return ok();
+    const s=document.createElement("script");
+    s.src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+    s.onload=()=>{pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";ok()};
+    s.onerror=()=>no(new Error("нужен интернет для первого чтения PDF"));
+    document.head.appendChild(s);
+  });
+}
+async function readPdf(file){
+  try{
+    msg="Читаю PDF…";render();
+    await loadPdfJs();
+    const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
+    const lines=[];
+    for(let n=1;n<=pdf.numPages;n++){
+      const tc=await(await pdf.getPage(n)).getTextContent();
+      const its=tc.items.filter(x=>x.str.trim()).map(x=>({x:x.transform[4],y:x.transform[5],s:x.str})).sort((a,b)=>b.y-a.y);
+      let g=[],gy=null;
+      const flush=()=>{if(g.length)lines.push(g.sort((a,b)=>a.x-b.x).map(r=>r.s).join(" ").replace(/\s+/g," ").trim());g=[]};
+      its.forEach(r=>{if(gy===null||Math.abs(r.y-gy)>3){flush();gy=r.y}g.push(r)});flush();
+    }
+    const re=/(\d{2})\.(\d{2})\.(\d{2,4})\s+([+\-−–])\s*(\d[\d\s]*(?:[.,]\d{1,2})?)\s*(?:₸|KZT|T)?\s*(.*)$/;
+    const out=[];
+    lines.forEach(l=>{
+      const m=l.match(re);if(!m)return;
+      const y=m[3].length===2?"20"+m[3]:m[3],v=parseFloat(m[5].replace(/\s/g,"").replace(",","."));
+      if(isNaN(v))return;
+      const nm=m[6].trim().replace(/^(Перевод|Покупка|Пополнение|Снятие|Разное)\s+/i,(a,w)=>/перевод/i.test(w)?"":w+" ");
+      out.push(`${y}-${m[2]}-${m[1]} ${/[+]/.test(m[4])?"+":"-"}${v} ${nm||"Операция"}`);
+    });
+    if(out.length){draft=out.join("\n");msg=`Найдено операций: ${out.length}. Проверьте текст и нажмите «Начать разбор».`}
+    else{draft=lines.join("\n");msg="Не удалось распознать операции автоматически. Исправьте текст вручную."}
+  }catch(e){msg="Ошибка PDF: "+e.message}
+  render();
+}
+function pickPdf(el){const f=el.files&&el.files[0];if(f){day=$("#dt").value||day;readPdf(f)}}
+async function checkShare(){
+  if(!sp.get("share"))return;
+  try{
+    const c=await caches.open("share");
+    const t=await c.match("__st"),f=await c.match("__sf");
+    if(t){draft=await t.text();await c.delete("__st")}
+    if(f){const b=await f.blob();await c.delete("__sf");history.replaceState(null,"",location.pathname);await readPdf(b);return}
+  }catch(e){}
+  history.replaceState(null,"",location.pathname);render();
+}
+
+/* ---- PIN ---- */
+let lk=false,buf="",bad=0,until=0,hid=0;
+const hasPin=()=>{try{return !!localStorage.getItem("pin2")}catch(e){return false}};
+async function hashPin(p,s){
+  const b=new TextEncoder().encode(s+p);
+  if(window.crypto&&crypto.subtle){const h=await crypto.subtle.digest("SHA-256",b);return[...new Uint8Array(h)].map(x=>x.toString(16).padStart(2,"0")).join("")}
+  return s+p.split("").reverse().join("");
+}
+function lockOn(){if(hasPin()){lk=true;buf="";drawLock()}}
+function drawLock(m){
+  const L=$("#lock");
+  if(!lk){L.style.display="none";L.innerHTML="";return}
+  L.style.display="flex";
+  L.innerHTML=`<div style="font-size:20px">Введите PIN</div><div style="font-size:28px;letter-spacing:10px;height:46px;margin-top:6px">${"●".repeat(buf.length)+"○".repeat(4-buf.length)}</div><div class="neg" style="height:22px">${m||""}</div><div class="kp">${[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map(k=>k===""?"<span></span>":`<button onclick="key('${k}')">${k}</button>`).join("")}</div>`;
+}
+async function key(k){
+  if(Date.now()<until)return drawLock("Подождите 30 секунд");
+  if(k==="⌫")buf=buf.slice(0,-1);else if(buf.length<4)buf+=k;
+  drawLock();
+  if(buf.length<4)return;
+  const ok=await hashPin(buf,localStorage.getItem("pins2"))===localStorage.getItem("pin2");
+  if(ok){lk=false;bad=0;drawLock();return}
+  bad++;buf="";if(bad>=5){until=Date.now()+30000;bad=0}
+  drawLock(Date.now()<until?"Подождите 30 секунд":"Неверный PIN");
+}
+async function setPin(){
+  const v=$("#pn").value;
+  if(!/^\d{4}$/.test(v)){$("#pst").textContent="Нужно ровно 4 цифры";return}
+  const s=uid();localStorage.setItem("pins2",s);localStorage.setItem("pin2",await hashPin(v,s));
+  render();$("#pst").textContent="PIN установлен";
+}
+async function offPin(){
+  const v=$("#pn").value;
+  if(await hashPin(v,localStorage.getItem("pins2"))===localStorage.getItem("pin2")){localStorage.removeItem("pin2");localStorage.removeItem("pins2");render()}
+  else $("#pst").textContent="Неверный PIN";
+}
+
+/* ---- Счета ---- */
+function vAcc(){
+  const bal=a=>a.o+S.tx.filter(t=>t.acc===a.n).reduce((s,t)=>s+t.a,0);
+  const tot=S.acc.reduce((s,a)=>s+bal(a),0);
+  const list=S.tx.filter(t=>t.d===day),dn=list.reduce((s,t)=>s+t.a,0);
+  return `<div class="card"><div class="mut">Всего на счетах</div><div class="amt ${cls(tot)}">${sg(tot)}</div>
+  ${S.acc.map(a=>{const b=bal(a);return `<div class="row"><span>${esc(a.n)}</span><b class="${cls(b)}">${sg(b)}</b></div>`}).join("")}
+  <details style="margin-top:10px"><summary class="mut">Начальные остатки и новый счёт</summary>
+  ${S.acc.map((a,x)=>`<div class="row"><span>${esc(a.n)}</span><input type="number" style="width:140px;margin:0" value="${a.o}" onchange="setO(${x},this.value)"></div>`).join("")}
+  <div class="sm"><input id="na" placeholder="Название счёта" style="margin:0"><button onclick="addAcc()">Добавить</button></div></details></div>
+  <div class="card"><h3>День</h3><input type="date" value="${day}" onchange="day=this.value||today();render()">
+  <div class="row"><span class="mut">Итог дня</span><b class="${cls(dn)}">${sg(dn)}</b></div>
+  ${list.length?list.map(t=>`<div class="row"><div><div>${esc(t.p||t.n)}</div><div class="mut">${esc(t.k?"Қарыз":t.acc||"")}${t.sub?" · "+t.sub:""}</div></div><div><b class="${cls(t.a)}">${sg(t.a)}</b><button class="x" onclick="del('${t.id}')">✕</button></div></div>`).join(""):'<div class="mut" style="padding:8px 0">За этот день операций нет</div>'}</div>`;
+}
+function setO(x,v){S.acc[x].o=parseFloat(v)||0;op({action:"acc",acc:S.acc});render()}
+function addAcc(){const n=$("#na").value.trim();if(!n||S.acc.some(a=>a.n===n))return;S.acc.push({n,o:0});op({action:"acc",acc:S.acc});render()}
+function del(id){S.tx=S.tx.filter(t=>t.id!==id);op({action:"del",id});render()}
+
+/* ---- Анализ ---- */
+function ym(o){const d=new Date();d.setDate(1);d.setMonth(d.getMonth()+o);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")}
+const sum=a=>a.reduce((s,t)=>s+Math.abs(t.a),0);
+function cmpRows(title,keys,fc,fp){
+  const mx=Math.max(1,...keys.map(k=>Math.max(fc(k),fp(k))));
+  const rows=keys.map(k=>{const c=fc(k),p=fp(k);if(!c&&!p)return"";const d=p?Math.round((c-p)/p*100):null;
+  return `<div class="row" style="display:block"><div style="display:flex;justify-content:space-between"><span>${esc(k)}</span><span><b>${fmt(c)}</b> <span class="mut">было ${fmt(p)}${d===null?"":` · <span class="${d>0?"neg":"pos"}">${d>0?"+":""}${d}%</span>`}</span></span></div><div class="bar"><i style="width:${c/mx*100}%"></i></div></div>`}).join("");
+  return `<div class="card"><h3>${title}</h3>${rows||'<div class="mut">Пока нет данных</div>'}</div>`;
+}
+function vAn(){
+  const tx=S.tx.filter(t=>!t.k),c=ym(0),p=ym(-1);
+  const E=m=>tx.filter(t=>t.a<0&&t.d.startsWith(m)),I=m=>tx.filter(t=>t.a>0&&t.d.startsWith(m));
+  const ec=sum(E(c)),ep=sum(E(p)),ic=sum(I(c)),ip=sum(I(p)),avg=ec/new Date().getDate();
+  const days=[];for(let j=13;j>=0;j--){const d=new Date();d.setDate(d.getDate()-j);const s=new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10);days.push([s,sum(tx.filter(t=>t.a<0&&t.d===s))])}
+  const mx=Math.max(1,...days.map(x=>x[1]));
+  const bd={};E(c).forEach(t=>bd[t.d]=(bd[t.d]||0)+Math.abs(t.a));
+  const top=Object.entries(bd).sort((a,b)=>b[1]-a[1])[0];
+  const pe=m=>E(m).filter(t=>t.acc==="Личное");
+  return `<div class="card"><h3>Этот месяц и прошлый</h3>
+  <div class="row"><span>Расходы</span><span><b class="neg">${fmt(ec)}</b> <span class="mut">было ${fmt(ep)}</span></span></div>
+  <div class="row"><span>Доходы</span><span><b class="pos">${fmt(ic)}</b> <span class="mut">было ${fmt(ip)}</span></span></div>
+  <div class="row"><span>Чистый итог</span><b class="${cls(ic-ec)}">${sg(ic-ec)}</b></div>
+  <div class="row"><span>Средний расход в день</span><b>${fmt(avg)}</b></div>
+  ${top?`<div class="row"><span>Самый затратный день</span><b>${top[0].slice(5)} · ${fmt(top[1])}</b></div>`:""}</div>
+  <div class="card"><h3>Расходы за 14 дней</h3><div class="cols">${days.map(d=>`<i style="height:${d[1]/mx*100}%"></i>`).join("")}</div>
+  <div class="row mut" style="border:0"><span>${days[0][0].slice(5)}</span><span>${days[13][0].slice(5)}</span></div></div>
+  ${cmpRows("По счетам: расходы",S.acc.map(a=>a.n),k=>sum(E(c).filter(t=>t.acc===k)),k=>sum(E(p).filter(t=>t.acc===k)))}
+  ${cmpRows("Личные расходы",SUB,k=>sum(pe(c).filter(t=>(t.sub||"Другое")===k)),k=>sum(pe(p).filter(t=>(t.sub||"Другое")===k)))}`;
+}
+
+/* ---- Қарыз дәптер ---- */
+function vDebt(){
+  const P={};
+  S.tx.filter(t=>t.k).forEach(t=>{const key=(t.p||t.n).toLowerCase();(P[key]=P[key]||{n:t.p||t.n,o:[]}).o.push(t)});
+  const ppl=Object.values(P).map(p=>({n:p.n,owed:-p.o.reduce((s,t)=>s+t.a,0),o:p.o.slice().sort((a,b)=>a.d<b.d?-1:1)})).sort((a,b)=>b.owed-a.owed);
+  const tot=ppl.reduce((s,p)=>s+Math.max(0,p.owed),0);
+  return `<div class="card"><div class="mut">Қарыз дәптер · вам должны всего</div><div class="amt pos">${fmt(tot)} ₸</div></div>
+  ${ppl.map(p=>`<div class="card"><details><summary style="display:flex;justify-content:space-between"><b>${esc(p.n)}</b><b class="${p.owed>0?"neg":"pos"}">${p.owed>0?"должен "+fmt(p.owed)+" ₸":p.owed<0?"переплатил "+fmt(p.owed)+" ₸":"расчёт закрыт"}</b></summary>
+  ${p.o.map(t=>`<div class="row"><span class="mut">${t.d} · ${t.k==="lend"?"дал":"вернул"}</span><b>${fmt(t.a)} ₸</b></div>`).join("")}</details></div>`).join("")||'<div class="card mut">Долгов пока нет. Они появятся, когда при разборе выписки вы нажмёте «Қарызға бердім».</div>'}
+  <div class="card"><h3>Добавить вручную</h3><input id="dp" placeholder="Имя"><input id="da" type="number" placeholder="Сумма"><input id="dd" type="date" value="${today()}">
+  <select id="dk"><option value="lend">Дал в долг</option><option value="repay">Вернули долг</option></select>
+  <button class="p" onclick="addDebt()">Добавить</button><div class="mut" style="margin-top:6px">Ручная запись не меняет остатки счетов.</div></div>`;
+}
+function addDebt(){
+  const p=$("#dp").value.trim(),a=parseFloat($("#da").value),d=$("#dd").value||today(),k=$("#dk").value;
+  if(!p||!a)return;
+  addTx([{id:uid(),d,a:k==="lend"?-Math.abs(a):Math.abs(a),n:p,p,k}]);render();
+}
+
+/* ---- Настройки ---- */
+function vSet(){
+  return `<div class="card"><h3>Google Таблица</h3><div class="mut">Ссылка веб-приложения (Apps Script) и пароль из скрипта</div>
+  <input id="cu" placeholder="https://script.google.com/macros/s/.../exec" value="${esc(cfg.url)}"><input id="ck" placeholder="Пароль" value="${esc(cfg.key)}">
+  <button class="p" onclick="saveCfg()">Сохранить и синхронизировать</button>
+  <div class="mut" style="margin-top:8px">${esc(st||(cfg.url?"Подключено":"Не подключено: данные только на этом телефоне"))}${q.length?" · в очереди: "+q.length:""}</div></div>
+  <div class="card"><h3>Перенос из старой версии</h3><div class="mut">Вставьте данные из старого приложения (Счета → «Данные для переноса»)</div>
+  <textarea id="imp"></textarea><button class="p" onclick="doImport()">Импортировать</button><div class="mut" id="impst" style="margin-top:6px"></div></div>
+  <div class="card"><h3>PIN-код</h3><div class="mut">${hasPin()?"PIN включён. Чтобы отключить, введите текущий PIN.":"Защита входа в приложение, 4 цифры"}</div>
+  <input id="pn" type="password" inputmode="numeric" maxlength="4" placeholder="4 цифры"><button class="p" onclick="${hasPin()?"offPin()":"setPin()"}">${hasPin()?"Отключить PIN":"Установить PIN"}</button><div class="mut" id="pst" style="margin-top:6px">Если забудете PIN, очистите данные сайта в браузере: данные вернутся из Google Таблицы.</div></div>`;
+}
+async function saveCfg(){
+  cfg={url:$("#cu").value.trim(),key:$("#ck").value.trim()};
+  try{localStorage.setItem("cfg2",JSON.stringify(cfg))}catch(e){}
+  if(!cfg.url){st="Отключено";render();return}
+  st="Подключаюсь…";render();
+  try{
+    const j=await pull();
+    if(S.tx.length)q.push({action:"add",tx:S.tx});
+    if(!(j.acc&&j.acc.length))q.push({action:"acc",acc:S.acc});
+    persist();
+  }catch(e){st="Ошибка: "+e.message;render();return}
+  sync(true);
+}
+function doImport(){
+  const el=$("#impst");
+  try{
+    const o=JSON.parse($("#imp").value);
+    const acc=(o.meta&&o.meta.acc)||o.acc;
+    const tx=o.tx||Object.values(o.m||{}).flat();
+    if(!acc||!Array.isArray(tx))throw 0;
+    S.acc=acc;S.tx=tx.map(t=>({...clean(t),id:t.id||uid()}));
+    q.push({action:"acc",acc:S.acc},{action:"add",tx:S.tx});persist();sync();
+    el.textContent="Перенесено операций: "+S.tx.length;
+  }catch(e){el.textContent="Не получилось прочитать данные"}
+}
+
+load();
+const sp=new URLSearchParams(location.search),shared=sp.get("text")||sp.get("title");
+if(shared){draft=shared;history.replaceState(null,"",location.pathname)}
+lockOn();render();sync();checkShare();
+addEventListener("online",()=>sync());
+document.addEventListener("visibilitychange",()=>{if(document.hidden)hid=Date.now();else{if(hid&&Date.now()-hid>30000)lockOn();sync()}});
+if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
+</script>
+</body>
+</html>
