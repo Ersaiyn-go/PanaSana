@@ -6,7 +6,9 @@
 <title>Учёт</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
-<meta name="theme-color" content="#1f6feb">
+<link rel="icon" type="image/png" href="icon-192.png">
+<meta name="theme-color" content="#0E3B2C">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Учёт">
@@ -70,13 +72,15 @@ function op(o){q.push(o);persist();sync()}
 
 async function post(o){
   const r=await fetch(cfg.url,{method:"POST",body:JSON.stringify({key:cfg.key,...o})});
-  const j=await r.json();if(!j.ok)throw new Error(j.error||"ошибка");
+  const j=await rj(r);if(!j.ok)throw new Error(errTxt(j.error));
 }
 async function pull(){
   const r=await fetch(cfg.url+(cfg.url.includes("?")?"&":"?")+"key="+encodeURIComponent(cfg.key));
-  const j=await r.json();if(j.error)throw new Error(j.error==="key"?"неверный пароль":j.error);
+  const j=await rj(r);if(j.error)throw new Error(errTxt(j.error));
   return j;
 }
+async function rj(r){try{return await r.json()}catch(e){throw new Error("скрипт ответил не так, проверьте ссылку и что развёрнута новая версия")}}
+const errTxt=e=>({key:"неверный пароль",busy:"таблица занята, повторю позже",json:"ошибка данных"})[e]||e||"ошибка";
 const clean=t=>{const o={id:t.id,d:t.d,a:t.a,n:t.n};["acc","sub","k","p"].forEach(f=>{if(t[f])o[f]=t[f]});return o};
 async function sync(manual){
   if(!cfg.url||busy)return;
@@ -106,7 +110,7 @@ function parse(t){
     return{d,a:(m[1]===""||m[1]==="+")?n:-n,n:m[3].replace(/\s*\([+\-]\)\s*$/,"").replace(/^(.+?)\.?\s*перевод.*$/i,"$1").trim()};
   }).filter(Boolean);
 }
-function go(t){tab=t;render()}
+function go(t){if(t!==tab)msg="";tab=t;render()}
 function render(){
   const T=[["sort","Разбор"],["acc","Счета"],["an","Анализ"],["debt","Қарыз"],["set","⚙"]];
   $("#nav").innerHTML=T.map(([k,l])=>`<button class="${tab==k?"on":""}" onclick="go('${k}')">${l}</button>`).join("");
@@ -253,11 +257,11 @@ function vAcc(){
   <div class="sm"><input id="na" placeholder="Название счёта" style="margin:0"><button onclick="addAcc()">Добавить</button></div></details></div>
   <div class="card"><h3>День</h3><input type="date" value="${day}" onchange="day=this.value||today();render()">
   <div class="row"><span class="mut">Итог дня</span><b class="${cls(dn)}">${sg(dn)}</b></div>
-  ${list.length?list.map(t=>`<div class="row"><div><div>${esc(t.p||t.n)}</div><div class="mut">${esc(t.k?"Қарыз":t.acc||"")}${t.sub?" · "+t.sub:""}</div></div><div><b class="${cls(t.a)}">${sg(t.a)}</b><button class="x" onclick="del('${t.id}')">✕</button></div></div>`).join(""):'<div class="mut" style="padding:8px 0">За этот день операций нет</div>'}</div>`;
+  ${list.length?list.map(t=>`<div class="row"><div><div>${esc(t.p||t.n)}</div><div class="mut">${esc(t.k?"Қарыз":t.acc||"")}${t.sub?" · "+t.sub:""}</div></div><div><b class="${cls(t.a)}">${sg(t.a)}</b><button class="x" onclick="del('${esc(t.id)}')" aria-label="Удалить">✕</button></div></div>`).join(""):'<div class="mut" style="padding:8px 0">За этот день операций нет</div>'}</div>`;
 }
 function setO(x,v){S.acc[x].o=parseFloat(v)||0;op({action:"acc",acc:S.acc});render()}
-function addAcc(){const n=$("#na").value.trim();if(!n||S.acc.some(a=>a.n===n))return;S.acc.push({n,o:0});op({action:"acc",acc:S.acc});render()}
-function del(id){S.tx=S.tx.filter(t=>t.id!==id);op({action:"del",id});render()}
+function addAcc(){const n=$("#na").value.trim();if(!n)return;if(S.acc.some(a=>a.n===n)){alert("Такой счёт уже есть");return}S.acc.push({n,o:0});op({action:"acc",acc:S.acc});render()}
+function del(id){const t=S.tx.find(x=>x.id===id);if(t&&!confirm("Удалить операцию "+sg(t.a)+" · "+(t.p||t.n)+"?"))return;S.tx=S.tx.filter(t=>t.id!==id);op({action:"del",id});render()}
 
 /* ---- Анализ ---- */
 function ym(o){const d=new Date();d.setDate(1);d.setMonth(d.getMonth()+o);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")}
@@ -304,7 +308,7 @@ function vDebt(){
 }
 function addDebt(){
   const p=$("#dp").value.trim(),a=parseFloat($("#da").value),d=$("#dd").value||today(),k=$("#dk").value;
-  if(!p||!a)return;
+  if(!p||!a||isNaN(a)){alert("Укажите имя и сумму");return}
   addTx([{id:uid(),d,a:k==="lend"?-Math.abs(a):Math.abs(a),n:p,p,k}]);render();
 }
 
@@ -339,7 +343,7 @@ function doImport(){
     const acc=(o.meta&&o.meta.acc)||o.acc;
     const tx=o.tx||Object.values(o.m||{}).flat();
     if(!acc||!Array.isArray(tx))throw 0;
-    S.acc=acc;S.tx=tx.map(t=>({...clean(t),id:t.id||uid()}));
+    S.acc=acc;S.tx=tx.map((t,x)=>({...clean(t),id:t.id||("imp-"+t.d+"-"+t.a+"-"+x)}));
     q.push({action:"acc",acc:S.acc},{action:"add",tx:S.tx});persist();sync();
     el.textContent="Перенесено операций: "+S.tx.length;
   }catch(e){el.textContent="Не получилось прочитать данные"}
@@ -350,6 +354,7 @@ const sp=new URLSearchParams(location.search),shared=sp.get("text")||sp.get("tit
 if(shared){draft=shared;history.replaceState(null,"",location.pathname)}
 lockOn();render();sync();checkShare();
 addEventListener("online",()=>sync());
+setInterval(()=>{if(q.length&&!document.hidden)sync()},120000);
 document.addEventListener("visibilitychange",()=>{if(document.hidden)hid=Date.now();else{if(hid&&Date.now()-hid>30000)lockOn();sync()}});
 if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
 </script>
