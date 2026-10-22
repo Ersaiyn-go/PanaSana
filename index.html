@@ -182,7 +182,7 @@ async function readPdf(file){
       const flush=()=>{if(g.length)lines.push(g.sort((a,b)=>a.x-b.x).map(r=>r.s).join(" ").replace(/\s+/g," ").trim());g=[]};
       its.forEach(r=>{if(gy===null||Math.abs(r.y-gy)>3){flush();gy=r.y}g.push(r)});flush();
     }
-    const re=/(\d{2})\.(\d{2})\.(\d{2,4})\s+([+\-−–])\s*(\d[\d\s]*(?:[.,]\d{1,2})?)\s*(?:₸|KZT|T)?\s*(.*)$/;
+    const re=/^(\d{2})\.(\d{2})\.(\d{2,4})\s+([+\-−–])\s*(\d[\d\s]*(?:[.,]\d{1,2})?)\s*(?:₸|KZT|T)?\s*(.*)$/;
     const out=[];
     lines.forEach(l=>{
       const m=l.match(re);if(!m)return;
