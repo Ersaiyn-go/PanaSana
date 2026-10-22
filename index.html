@@ -51,7 +51,8 @@ input[type=file]{display:none}
 <div id="lock"></div>
 <script>
 const SUB=["Развлечения","Дорога","Еда","Одежда","Другое"];
-let S={acc:["Основной","Личное","Доставка","Бонус","Штраф","На сайт","Офис"].map(n=>({n,o:0})),tx:[]};
+const OWN=/депозит|своего сч|свои сч|своих сч/i;
+let S={acc:["Личное","Доставка","Бонус","Штраф"].map(n=>({n,o:0})),tx:[]};
 let cfg={url:"",key:""},q=[],tab="sort",items=[],i=0,cur={s:"acc"},msg="",draft="",st="",busy=false;
 const $=s=>document.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -60,7 +61,7 @@ const sg=n=>(n<0?"−":"+")+fmt(n)+" ₸";
 const cls=n=>n<0?"neg":"pos";
 const today=()=>new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10);
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-let day=today();
+let day=today(),pre="";
 
 function load(){
   try{const x=JSON.parse(localStorage.getItem("led2")||"null");if(x&&x.acc)S=x}catch(e){}
@@ -140,9 +141,10 @@ function start(){
   const p=parse(draft);
   if(!p.length){$("#t").insertAdjacentHTML("beforebegin",'<div class="neg">Не нашёл операций. Формат: -6000 Имя Перевод</div>');return}
   const have={};S.tx.forEach(t=>{const k=t.d+"|"+t.a+"|"+t.n;have[k]=(have[k]||0)+1});
-  let dup=0;
-  items=p.map(x=>({...x,d:x.d||day})).filter(x=>{const k=x.d+"|"+x.a+"|"+x.n;if(have[k]>0){have[k]--;dup++;return false}return true});
-  i=0;cur={s:"acc"};msg=dup?`Пропущено уже сохранённых: ${dup}`:"";
+  let dup=0,own=0;
+  items=p.map(x=>({...x,d:x.d||day})).filter(x=>{if(OWN.test(x.n)){own++;return false}const k=x.d+"|"+x.a+"|"+x.n;if(have[k]>0){have[k]--;dup++;return false}return true});
+  i=0;cur={s:"acc"};pre=msg=[dup?`Пропущено уже сохранённых: ${dup}`:"",own?`Пропущено переводов между своими счетами (депозит): ${own}`:""].filter(Boolean).join(". ");
+  if(!items.length){msg=msg||"Новых операций нет";render();return}
   render();
 }
 function nxt(){i++;cur={s:"acc"};if(i>=items.length)finish();else render()}
@@ -155,7 +157,7 @@ function back(){if(i>0){i--;const it=items[i];["skip","k","sub","p","acc"].forEa
 function finish(){
   const ok=items.filter(t=>!t.skip).map(({skip,...t})=>({...t,id:uid()}));
   addTx(ok);
-  msg=`Сохранено операций: ${ok.length}. Смотрите вкладку «Счета».`;items=[];draft="";render();
+  msg=`Сохранено операций: ${ok.length}. Смотрите вкладку «Счета».`+(pre?" "+pre+".":"");pre="";items=[];draft="";render();
 }
 
 /* ---- PDF ---- */
@@ -188,7 +190,7 @@ async function readPdf(file){
       const m=l.match(re);if(!m)return;
       const y=m[3].length===2?"20"+m[3]:m[3],v=parseFloat(m[5].replace(/\s/g,"").replace(",","."));
       if(isNaN(v))return;
-      const nm=m[6].trim().replace(/^(Перевод|Покупка|Пополнение|Снятие|Разное)\s+/i,(a,w)=>/перевод/i.test(w)?"":w+" ");
+      const nm=m[6].trim().replace(/^Поступление со\s+/i,"").replace(/^(Перевод|Покупка|Пополнение|Снятие|Разное)\s+/i,(a,w)=>/перевод/i.test(w)?"":w+" ");
       out.push(`${y}-${m[2]}-${m[1]} ${/[+]/.test(m[4])?"+":"-"}${v} ${nm||"Операция"}`);
     });
     if(out.length){draft=out.join("\n");msg=`Найдено операций: ${out.length}. Проверьте текст и нажмите «Начать разбор».`}
@@ -253,15 +255,42 @@ function vAcc(){
   return `<div class="card"><div class="mut">Всего на счетах</div><div class="amt ${cls(tot)}">${sg(tot)}</div>
   ${S.acc.map(a=>{const b=bal(a);return `<div class="row"><span>${esc(a.n)}</span><b class="${cls(b)}">${sg(b)}</b></div>`}).join("")}
   <details style="margin-top:10px"><summary class="mut">Начальные остатки и новый счёт</summary>
-  ${S.acc.map((a,x)=>`<div class="row"><span>${esc(a.n)}</span><input type="number" style="width:140px;margin:0" value="${a.o}" onchange="setO(${x},this.value)"></div>`).join("")}
+  ${S.acc.map((a,x)=>`<div class="row"><span>${esc(a.n)}</span><span style="display:flex;gap:4px;align-items:center"><input type="number" inputmode="decimal" style="width:130px;margin:0" value="${a.o}" onchange="setO(${x},this.value)"><button class="x" onclick="delAcc(${x})" aria-label="Удалить счёт">✕</button></span></div>`).join("")}
   <div class="sm"><input id="na" placeholder="Название счёта" style="margin:0"><button onclick="addAcc()">Добавить</button></div></details></div>
+  <div class="card"><h3>Перевод между счетами</h3><div class="mut">Не считается ни расходом, ни доходом</div>
+  <div class="grid" style="margin-top:4px"><select id="trf">${S.acc.map((a,x)=>`<option value="${x}">Из: ${esc(a.n)}</option>`).join("")}</select><select id="trt">${S.acc.map((a,x)=>`<option value="${x}" ${x===1?"selected":""}>В: ${esc(a.n)}</option>`).join("")}</select></div>
+  <div class="grid" style="margin-top:0"><input id="tra" type="number" inputmode="decimal" placeholder="Сумма"><input id="trd" type="date" value="${day}"></div>
+  <button class="p" onclick="addTr()">Перевести</button></div>
   <div class="card"><h3>День</h3><input type="date" value="${day}" onchange="day=this.value||today();render()">
   <div class="row"><span class="mut">Итог дня</span><b class="${cls(dn)}">${sg(dn)}</b></div>
-  ${list.length?list.map(t=>`<div class="row"><div><div>${esc(t.p||t.n)}</div><div class="mut">${esc(t.k?"Қарыз":t.acc||"")}${t.sub?" · "+t.sub:""}</div></div><div><b class="${cls(t.a)}">${sg(t.a)}</b><button class="x" onclick="del('${esc(t.id)}')" aria-label="Удалить">✕</button></div></div>`).join(""):'<div class="mut" style="padding:8px 0">За этот день операций нет</div>'}</div>`;
+  ${list.length?list.map(t=>`<div class="row"><div><div>${esc(t.p||t.n)}</div><div class="mut">${esc(t.k==="tr"?"Перевод · "+t.acc:t.k?"Қарыз":t.acc||"")}${t.sub?" · "+t.sub:""}</div></div><div><b class="${cls(t.a)}">${sg(t.a)}</b><button class="x" onclick="del('${esc(t.id)}')" aria-label="Удалить">✕</button></div></div>`).join(""):'<div class="mut" style="padding:8px 0">За этот день операций нет</div>'}</div>`;
 }
 function setO(x,v){S.acc[x].o=parseFloat(v)||0;op({action:"acc",acc:S.acc});render()}
 function addAcc(){const n=$("#na").value.trim();if(!n)return;if(S.acc.some(a=>a.n===n)){alert("Такой счёт уже есть");return}S.acc.push({n,o:0});op({action:"acc",acc:S.acc});render()}
-function del(id){const t=S.tx.find(x=>x.id===id);if(t&&!confirm("Удалить операцию "+sg(t.a)+" · "+(t.p||t.n)+"?"))return;S.tx=S.tx.filter(t=>t.id!==id);op({action:"del",id});render()}
+function delAcc(x){
+  if(S.acc.length<2){alert("Должен остаться хотя бы один счёт");return}
+  const a=S.acc[x],n=S.tx.filter(t=>t.acc===a.n).length;
+  if(!confirm(`Удалить счёт «${a.n}»?`+(n?`\nПо нему ${n} операций: они останутся в таблице, но перестанут учитываться в остатках.`:"")))return;
+  S.acc.splice(x,1);op({action:"acc",acc:S.acc});render();
+}
+function del(id){
+  const t=S.tx.find(x=>x.id===id);if(!t)return;
+  if(t.k==="tr"){
+    const g=id.slice(0,-1),ids=S.tx.filter(x=>x.k==="tr"&&x.id.slice(0,-1)===g).map(x=>x.id);
+    if(!confirm("Удалить перевод "+fmt(t.a)+" ₸ (обе части)?"))return;
+    S.tx=S.tx.filter(x=>!ids.includes(x.id));ids.forEach(i=>q.push({action:"del",id:i}));persist();sync();render();return;
+  }
+  if(!confirm("Удалить операцию "+sg(t.a)+" · "+(t.p||t.n)+"?"))return;
+  S.tx=S.tx.filter(x=>x.id!==id);op({action:"del",id});render()
+}
+function addTr(){
+  const f=+$("#trf").value,to=+$("#trt").value,a=Math.abs(parseFloat(String($("#tra").value).replace(",","."))),d=$("#trd").value||today();
+  if(f===to){alert("Выберите разные счета");return}
+  if(!a){alert("Укажите сумму");return}
+  const g=uid(),F=S.acc[f].n,T=S.acc[to].n;
+  addTx([{id:g+"a",d,a:-a,n:"Перевод → "+T,acc:F,k:"tr"},{id:g+"b",d,a:a,n:"Перевод ← "+F,acc:T,k:"tr"}]);
+  render();
+}
 
 /* ---- Анализ ---- */
 function ym(o){const d=new Date();d.setDate(1);d.setMonth(d.getMonth()+o);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")}
@@ -296,7 +325,7 @@ function vAn(){
 /* ---- Қарыз дәптер ---- */
 function vDebt(){
   const P={};
-  S.tx.filter(t=>t.k).forEach(t=>{const key=(t.p||t.n).toLowerCase();(P[key]=P[key]||{n:t.p||t.n,o:[]}).o.push(t)});
+  S.tx.filter(t=>t.k==="lend"||t.k==="repay").forEach(t=>{const key=(t.p||t.n).toLowerCase();(P[key]=P[key]||{n:t.p||t.n,o:[]}).o.push(t)});
   const ppl=Object.values(P).map(p=>({n:p.n,owed:-p.o.reduce((s,t)=>s+t.a,0),o:p.o.slice().sort((a,b)=>a.d<b.d?-1:1)})).sort((a,b)=>b.owed-a.owed);
   const tot=ppl.reduce((s,p)=>s+Math.max(0,p.owed),0);
   return `<div class="card"><div class="mut">Қарыз дәптер · вам должны всего</div><div class="amt pos">${fmt(tot)} ₸</div></div>
