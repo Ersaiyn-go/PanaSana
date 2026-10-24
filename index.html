@@ -24,9 +24,12 @@
   --red:#FF8A7A;--grn:#5FD39A;--gold:#E2B54A;--shadow:none;
 }}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html{background:var(--bg)}
-body{margin:0 auto;max-width:560px;background:var(--bg);color:var(--tx);font:16px/1.4 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif;font-variant-numeric:tabular-nums;
-  padding:calc(8px + env(safe-area-inset-top,0px)) 14px calc(96px + env(safe-area-inset-bottom,0px))}
+html,body{height:100%;margin:0;overflow:hidden;background:var(--bg)}
+body{color:var(--tx);font:16px/1.4 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif;font-variant-numeric:tabular-nums;display:flex;flex-direction:column;height:100vh;height:100dvh}
+#hd,#app{width:100%;max-width:560px;margin:0 auto;padding-left:14px;padding-right:14px}
+#hd{flex:none;padding-top:calc(8px + env(safe-area-inset-top,0px))}
+#sc{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+#app{padding-bottom:20px}
 header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 2px 12px}
 header h1{font-size:26px;line-height:1.2;margin:0;font-weight:750;letter-spacing:-.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dot{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--mut);background:var(--card);border:1px solid var(--bd);border-radius:99px;padding:6px 12px;min-height:36px;flex:none}
@@ -34,7 +37,7 @@ header h1{font-size:26px;line-height:1.2;margin:0;font-weight:750;letter-spacing
 .dot.ok i{background:var(--grn)}.dot.busy i{background:var(--gold);animation:pl 1s infinite}.dot.err i{background:var(--red)}
 @keyframes pl{50%{opacity:.25}}
 
-nav{position:fixed;left:0;right:0;bottom:0;z-index:50;background:var(--card);border-top:1px solid var(--bd);padding:4px 8px calc(4px + env(safe-area-inset-bottom,0px))}
+nav{flex:none;background:var(--card);border-top:1px solid var(--bd);padding:4px 8px calc(4px + env(safe-area-inset-bottom,0px))}
 nav>div{display:flex;max-width:560px;margin:0 auto}
 nav button{flex:1;border:0;background:none;color:var(--mut);display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;font-weight:600;padding:7px 0 5px;min-height:54px;border-radius:14px}
 nav button.on{color:var(--ac)}
@@ -122,6 +125,8 @@ details[open]>summary::after{transform:rotate(-135deg);margin-bottom:-4px}
 .hcard{background:var(--hero);color:var(--heroTx);border-radius:22px;padding:18px;margin-bottom:12px}
 .hcard .lbl{color:var(--heroMut);font-size:14px}
 .hcard .amt{color:#fff;margin:4px 0}
+.hrow{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.15)}
+.hrow b{font-size:20px;color:#fff}
 .pc .ph{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
 .pc .pn{font-size:18px;font-weight:700}
 .pc .pv{font-size:20px;font-weight:750;white-space:nowrap}
@@ -144,7 +149,7 @@ details[open]>summary::after{transform:rotate(-135deg);margin-bottom:-4px}
 </head>
 <body>
 <header id="hd"></header>
-<main id="app"></main>
+<div id="sc"><main id="app"></main></div>
 <nav id="nav"></nav>
 <div id="lock"></div>
 <script>
@@ -156,9 +161,10 @@ const OWN=/депозит|своего сч|свои сч|своих сч/i;
 
 let S={acc:CORE.map(n=>({n,o:0})),tx:[]};
 let cfg={url:"",key:""},q=[],tab="home",items=[],i=0,cur={s:"top"},msg="",draft="",st="",stT=0,busy=false,again=false,lastPull=0;
-let pre="",accSel=null,homePanel=null,detOpen=false,addSign=-1,retHome=false,debtOpen=null,debtMode="repay",ppl=[];
+let whoList=[],pre="",accSel=null,homePanel=null,detOpen=false,addSign=-1,retHome=false,debtOpen=null,debtMode="repay",ppl=[];
 
 const $=s=>document.querySelector(s);
+const top0=()=>{const e=document.getElementById("sc");if(e)e.scrollTop=0};
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const fmt=n=>Math.round(Math.abs(n)).toLocaleString("ru-RU");
 const money=n=>(Math.round(n)<0?"−":"")+fmt(n)+" ₸";
@@ -266,7 +272,7 @@ function dotTap(){if(!cfg.url||(st&&st!=="ok"))go("set");else sync(true)}
 
 /* ---------- каркас ---------- */
 const TABS=[["home","Счета","home"],["sort","Разбор","sort"],["an","Анализ","an"],["debt","Қарыз","debt"],["set","Ещё","set"]];
-function go(t){if(t!==tab)msg="";tab=t;accSel=null;homePanel=null;debtOpen=null;render();scrollTo(0,0)}
+function go(t){if(t!==tab)msg="";tab=t;accSel=null;homePanel=null;debtOpen=null;render();top0()}
 function render(){
   $("#nav").innerHTML=`<div>${TABS.map(([k,l,c])=>`<button class="${tab===k?"on":""}" onclick="go('${k}')">${IC[c]}<span>${l}</span></button>`).join("")}</div>`;
   const title={home:accSel!==null&&S.acc[accSel]?S.acc[accSel].n:"Мои счета",sort:"Разбор",an:"Анализ",debt:"Қарыз дәптер",set:"Настройки"}[tab];
@@ -323,7 +329,7 @@ function vAccOne(){
   <div class="tile wide${a.n==="Личное"?" hero":""}"><span class="tn">Остаток</span><span class="tb${b<0?" neg":""}">${money(b)}</span><span class="tm">начальный ${money(a.o)} · расход за месяц ${fmt(m)} ₸</span></div>
   <div class="card">${h||'<div class="empty">По этому счёту операций пока нет</div>'}</div>`;
 }
-function openAcc(x){accSel=x;homePanel=null;render();scrollTo(0,0)}
+function openAcc(x){accSel=x;homePanel=null;render();top0()}
 function panel(p){homePanel=homePanel===p?null:p;render();if(homePanel==="add"){const e=$("#ma");if(e)e.focus()}}
 function setSign(v,el){addSign=v;el.parentNode.querySelectorAll("button").forEach(b=>b.classList.toggle("on",b===el))}
 function vAdd(){
@@ -337,7 +343,7 @@ function vAdd(){
 function addManual(){
   const a=num($("#ma").value);if(!a){alert("Укажите сумму");return}
   const n=$("#mn").value.trim()||(addSign<0?"Расход":"Доход");
-  items=[{d:$("#md").value||today(),a:addSign*Math.abs(a),n}];i=0;cur={s:"top"};retHome=true;homePanel=null;msg="";tab="sort";render();scrollTo(0,0);
+  items=[{d:$("#md").value||today(),a:addSign*Math.abs(a),n}];i=0;cur={s:"top"};retHome=true;homePanel=null;msg="";tab="sort";render();top0();
 }
 function vTr(){
   const o=ordered(),opt=(sel)=>o.map(a=>`<option value="${S.acc.indexOf(a)}" ${a.n===sel?"selected":""}>${esc(a.n)}</option>`).join("");
@@ -406,13 +412,18 @@ function vSort(){
     const it=items[i],neg=it.a<0;let b="";
     if(cur.s==="sub")b=`<div class="q">Личное · на что?</div><div class="grid">${SUB.map((s,x)=>`<button onclick="pickSub(${x})">${s}</button>`).join("")}</div>`;
     else if(cur.s==="work")b=`<div class="q">Работа · что это?</div><div class="grid">${WORK.map((w,x)=>`<button onclick="pickWork(${x})">${w[0]}${w[0]!==w[1]?`<small>со счёта ${w[1]}</small>`:""}</button>`).join("")}</div>`;
-    else if(cur.s==="who")b=`<div class="q">${neg?"Кому дали в долг?":"Кто вернул долг?"}</div><input id="who" value="${esc(it.n)}" list="ppl" style="margin-top:8px"><datalist id="ppl">${debtors().map(d=>`<option value="${esc(d.n)}">`).join("")}</datalist><button class="p" style="margin-top:10px" onclick="pickWho()">Сохранить</button>`;
+    else if(cur.s==="who"){
+      const ds=debtors().filter(d=>neg||d.owed>0).sort((a,b)=>b.owed-a.owed);whoList=ds;
+      b=`<div class="q">${neg?"Кому дали в долг?":"Кто вернул долг?"}</div>
+      ${ds.length?`<div class="grid">${ds.map((d,x)=>`<button onclick="pickWhoX(${x})">${esc(d.n)}${d.owed>0?`<small>должен ${fmt(d.owed)} ₸</small>`:""}</button>`).join("")}</div><div class="mut" style="margin-top:12px">${neg?"Или новый человек":"Нет в списке? Впишите имя"}</div>`:""}
+      <div class="sm"><input id="who" value="${ds.length?"":esc(it.n)}" placeholder="Имя"><button class="p" style="width:auto;flex:0 0 auto;margin:0" onclick="pickWho()">Готово</button></div>`;
+    }
     else{
       const s=sugFor(it),others=S.acc.filter(a=>!CORE.includes(a.n));
       b=`${s?`<button class="sug" onclick="pickSug()">${IC.debt}<span><b>${esc(s.p.n)} вернул(а) долг</b><br><span class="mut">${s.man?"уже отмечено вручную, свяжу без дубля":"был(а) должен(на) "+fmt(s.p.owed)+" ₸"}</span></span></button>`:""}
       <div class="big"><button class="bp" onclick="pickTop('p')">Личное</button><button class="bw" onclick="pickTop('w')">Работа</button></div>
       ${others.length?`<div class="grid">${others.map(a=>`<button onclick="pickOther(${S.acc.indexOf(a)})">${esc(a.n)}</button>`).join("")}</div>`:""}
-      <button class="ghost" onclick="pickDebt()">${IC.debt}${neg?"Қарызға бердім":"Қарыз қайтты"}</button>`;
+      <button class="ghost" onclick="pickDebt()">${IC.debt}${neg?"Дал в долг":"Вернули долг · выбрать кто"}</button>`;
     }
     return `<div class="card sc"><div class="top"><span>${dlabel(it.d)}</span><span>${i+1} из ${items.length}</span></div><div class="bar"><i style="width:${i/items.length*100}%"></i></div>
     <div class="amt ${cls(it.a)}">${sg(it.a)}</div><div class="who">${esc(it.n)}</div>${b}
@@ -427,9 +438,9 @@ function vSort(){
   <button class="p" style="margin-top:12px" onclick="start()">Начать разбор</button></div>
   <div class="mut" style="padding:0 4px">Уже сохранённые операции и переводы с депозита пропускаются сами, поэтому одну выписку можно загружать повторно.</div>`;
 }
-function start(){
+function start(fromPdf){
   const te=$("#t"),de=$("#dt");
-  if(te)draft=te.value;if(de)day=de.value||today();
+  if(!fromPdf&&te)draft=te.value;if(de)day=de.value||today();
   const p=parse(draft);
   if(!p.length){msg="Не нашёл операций. Формат строки: -6000 Имя";render();return}
   const have={};S.tx.forEach(t=>{const k=t.d+"|"+t.a+"|"+t.n;have[k]=(have[k]||0)+1});
@@ -438,14 +449,15 @@ function start(){
   i=0;cur={s:"top"};retHome=false;
   pre=msg=[dup?`Пропущено уже сохранённых: ${dup}`:"",own?`Пропущено переводов с депозита и между своими счетами: ${own}`:""].filter(Boolean).join(". ");
   if(!items.length){msg=msg||"Новых операций нет";render();return}
-  render();scrollTo(0,0);
+  render();top0();
 }
-function nxt(){i++;cur={s:"top"};if(i>=items.length)finish();else{render();scrollTo(0,0)}}
+function nxt(){i++;cur={s:"top"};if(i>=items.length)finish();else{render();top0()}}
 function pickTop(k){const it=items[i];if(k==="p"){it.acc="Личное";if(it.a<0){cur.s="sub";render()}else nxt()}else{cur.s="work";render()}}
 function pickSub(x){items[i].sub=SUB[x];nxt()}
 function pickWork(x){const it=items[i];it.sub=WORK[x][0];it.acc=WORK[x][1];nxt()}
 function pickOther(x){items[i].acc=S.acc[x].n;nxt()}
-function pickDebt(){const it=items[i];it.k=it.a<0?"lend":"repay";it.acc="Личное";cur.s="who";render();const w=$("#who");if(w)w.select()}
+function pickDebt(){const it=items[i];it.k=it.a<0?"lend":"repay";it.acc="Личное";cur.s="who";render()}
+function pickWhoX(x){const it=items[i];it.p=whoList[x].n;if(it.k==="repay"){const m=findMan(it.p,it.a);if(m)it.link=m.id}nxt()}
 function pickWho(){const it=items[i];it.p=$("#who").value.trim()||it.n;if(it.k==="repay"){const m=findMan(it.p,it.a);if(m)it.link=m.id}nxt()}
 function pickSug(){const it=items[i],s=sugFor(it);it.k="repay";it.acc="Личное";it.p=s.p.n;if(s.man)it.link=s.man.id;nxt()}
 function skip(){items[i].skip=true;nxt()}
@@ -463,7 +475,7 @@ function finish(){
   if(ok.length)addTx(ok);else{persist();sync()}
   msg=(retHome?"Операция сохранена":`Сохранено операций: ${ok.length}`)+(pre?". "+pre:"");pre="";items=[];draft="";
   if(retHome){retHome=false;tab="home"}
-  render();scrollTo(0,0);
+  render();top0();
 }
 
 /* ---------- PDF ---------- */
@@ -499,7 +511,7 @@ async function readPdf(file){
       const nm=m[6].trim().replace(/^Поступление со\s+/i,"").replace(/^(Перевод|Покупка|Пополнение|Снятие|Разное)\s+/i,(a,w)=>/перевод/i.test(w)?"":w+" ");
       out.push(`${y}-${m[2]}-${m[1]} ${/[+]/.test(m[4])?"+":"-"}${v} ${nm||"Операция"}`);
     });
-    if(out.length){draft=out.join("\n");msg=`Найдено операций: ${out.length}`;start();return}
+    if(out.length){draft=out.join("\n");msg=`Найдено операций: ${out.length}`;start(true);return}
     draft=lines.join("\n");msg="Не удалось распознать операции автоматически. Проверьте текст ниже.";
   }catch(e){msg="Ошибка PDF: "+e.message}
   render();
@@ -525,28 +537,39 @@ function cmpRows(title,keys,fc,fp){
   return `<div><div class="sumrow" style="border:0;padding-bottom:0"><span>${esc(k)}</span><span><b>${fmt(c)}</b> <span class="mut">было ${fmt(p)}${d===null?"":` · <span class="${d>0?"neg":"pos"}">${d>0?"+":""}${d}%</span>`}</span></span></div><div class="hb"><i style="width:${c/mx*100}%"></i></div></div>`}).join("");
   return `<div class="card"><h3 style="margin-bottom:8px">${title}</h3>${rows||'<div class="empty">Пока нет данных</div>'}</div>`;
 }
+let anAll=false;
 function vAn(){
   const tx=S.tx.filter(t=>!t.k),c=ym(0),p=ym(-1);
   const E=m=>tx.filter(t=>t.a<0&&t.d.startsWith(m)),I=m=>tx.filter(t=>t.a>0&&t.d.startsWith(m));
   const pe=m=>E(m).filter(t=>t.acc==="Личное"),we=m=>E(m).filter(t=>t.acc&&t.acc!=="Личное");
-  const ec=sum(E(c)),ep=sum(E(p)),ic_=sum(I(c)),ip=sum(I(p)),avg=ec/new Date().getDate();
-  const days=[];for(let j=13;j>=0;j--){const d=new Date();d.setDate(d.getDate()-j);const s=iso(d);days.push([s,sum(tx.filter(t=>t.a<0&&t.d===s))])}
-  const mx=Math.max(1,...days.map(x=>x[1]));
-  const bd={};E(c).forEach(t=>bd[t.d]=(bd[t.d]||0)+Math.abs(t.a));
-  const top=Object.entries(bd).sort((a,b)=>b[1]-a[1])[0];
+  const pc=sum(pe(c)),pp=sum(pe(p)),wc=sum(we(c)),ic_=sum(I(c)),ip=sum(I(p));
+  /* дни, за которые есть загруженные операции */
+  const dset=m=>[...new Set(S.tx.filter(t=>t.k!=="tr"&&t.acc&&t.d.startsWith(m)).map(t=>t.d))];
+  const dc=dset(c).length,dp=dset(p).length;
+  const avg=dc?pc/dc:0,avgp=dp?pp/dp:0;
+  /* по дням */
+  const pick=t=>t.a<0&&(anAll?!!t.acc:t.acc==="Личное");
+  const byDay={};tx.filter(pick).forEach(t=>byDay[t.d]=(byDay[t.d]||0)+Math.abs(t.a));
+  const allDays=[...new Set(S.tx.filter(t=>t.k!=="tr"&&t.acc).map(t=>t.d))].sort().reverse().slice(0,14);
+  const mx=Math.max(1,...allDays.map(d=>byDay[d]||0));
+  const peakEntry=Object.entries(byDay).filter(([d])=>d.startsWith(c)).sort((a,b)=>b[1]-a[1])[0];
   const wk=t=>WORK.some(w=>w[0]===t.sub)?t.sub:(t.acc==="Офис"?"На офис":t.acc);
   const wkeys=[...new Set(WORK.map(w=>w[0]).concat(we(c).concat(we(p)).map(wk)))];
   const mname=new Date().toLocaleDateString("ru-RU",{month:"long"});
-  return `<div class="hcard"><div class="lbl">Расходы за ${mname}</div><div class="amt">${fmt(ec)} ₸</div><div class="lbl">в прошлом месяце ${fmt(ep)} ₸</div></div>
+  const diff=pp?Math.round((pc-pp)/pp*100):null;
+  return `<div class="hcard"><div class="lbl">Личные расходы · ${mname}</div><div class="amt">${fmt(pc)} ₸</div>
+  <div class="lbl">в прошлом месяце ${fmt(pp)} ₸${diff===null?"":` · ${diff>0?"+":""}${diff}%`}</div>
+  <div class="hrow"><div><div class="lbl">В среднем в день</div><b>${fmt(avg)} ₸</b></div><div><div class="lbl">Дней с данными</div><b>${dc}</b></div></div></div>
+  <div class="card"><div class="ch"><h3>Расход по дням</h3></div>
+  <div class="seg" style="margin-top:4px"><button class="${anAll?"":"on"}" onclick="anAll=false;render()">Личные</button><button class="${anAll?"on":""}" onclick="anAll=true;render()">Все</button></div>
+  ${allDays.length?allDays.map(d=>{const v=byDay[d]||0;return `<div class="dayrow"><div class="sumrow" style="border:0;padding:8px 0 2px"><span>${dlabel(d)}</span><b>${v?fmt(v)+" ₸":"—"}</b></div><div class="hb" style="margin:0 0 4px"><i style="width:${v/mx*100}%"></i></div></div>`}).join(""):'<div class="empty">Пока нет данных</div>'}
+  <div class="mut" style="margin-top:6px">Показаны последние 14 дней, за которые вы загружали выписку</div></div>
   <div class="card">
-  <div class="sumrow"><span>Личные расходы</span><b>${fmt(sum(pe(c)))} ₸</b></div>
-  <div class="sumrow"><span>Рабочие расходы</span><b>${fmt(sum(we(c)))} ₸</b></div>
+  <div class="sumrow"><span>Личные расходы</span><b>${fmt(pc)} ₸</b></div>
+  <div class="sumrow"><span>Рабочие расходы</span><b>${fmt(wc)} ₸</b></div>
   <div class="sumrow"><span>Доходы</span><span><b class="pos">${fmt(ic_)} ₸</b> <span class="mut">было ${fmt(ip)}</span></span></div>
-  <div class="sumrow"><span>Чистый итог</span><b class="${cls(ic_-ec)}">${sg(ic_-ec)}</b></div>
-  <div class="sumrow"><span>Средний расход в день</span><b>${fmt(avg)} ₸</b></div>
-  ${top?`<div class="sumrow"><span>Самый затратный день</span><b>${dlabel(top[0])} · ${fmt(top[1])} ₸</b></div>`:""}</div>
-  <div class="card"><h3>Расходы за 14 дней</h3><div class="cols">${days.map((d,x)=>`<i class="${x===13?"t":""}" style="height:${d[1]/mx*100}%" title="${d[0]}: ${fmt(d[1])} ₸"></i>`).join("")}</div>
-  <div class="sumrow mut" style="border:0;padding-bottom:0"><span>${days[0][0].slice(8)}.${days[0][0].slice(5,7)}</span><span>сегодня</span></div></div>
+  <div class="sumrow"><span>Средний личный расход в прошлом месяце</span><b>${fmt(avgp)} ₸</b></div>
+  ${peakEntry?`<div class="sumrow"><span>Самый затратный день${anAll?"":" (личное)"}</span><b>${dlabel(peakEntry[0])} · ${fmt(peakEntry[1])} ₸</b></div>`:""}</div>
   ${cmpRows("Личное: на что",SUB,k=>sum(pe(c).filter(t=>(t.sub||"Другое")===k)),k=>sum(pe(p).filter(t=>(t.sub||"Другое")===k)))}
   ${cmpRows("Работа: куда",wkeys,k=>sum(we(c).filter(t=>wk(t)===k)),k=>sum(we(p).filter(t=>wk(t)===k)))}`;
 }
