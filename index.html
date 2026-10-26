@@ -154,6 +154,7 @@ details[open]>summary::after{transform:rotate(-135deg);margin-bottom:-4px}
 /* ---------- настройки учёта ---------- */
 const CORE=["Личное","Доставка","Бонус","Штраф"];
 const SUB=["Еда","Дорога","Развлечения","Одежда","Другое"];
+const INC="Доход";
 const WORK=[["Доставка","Доставка"],["На сайт","Доставка"],["На офис","Доставка"],["Бонус","Бонус"],["Штраф","Штраф"]];
 const OWN=/депозит|своего сч|свои сч|своих сч/i;
 
@@ -282,7 +283,7 @@ function render(){
 /* ---------- Счета (главная) ---------- */
 const bal=a=>a.o+S.tx.filter(t=>t.acc===a.n).reduce((s,t)=>s+t.a,0);
 const ordered=()=>CORE.map(n=>S.acc.find(a=>a.n===n)).filter(Boolean).concat(S.acc.filter(a=>!CORE.includes(a.n)));
-const monthOut=n=>{const m=ym(0);return sum(S.tx.filter(t=>t.acc===n&&t.a<0&&t.k!=="tr"&&t.d.startsWith(m)))};
+const monthOut=n=>{const m=ym(0),L=S.tx.filter(t=>t.acc===n&&!t.k&&t.d.startsWith(m));return sum(L.filter(t=>t.a<0))-(n==="Личное"?sum(L.filter(t=>t.a>0&&SUB.includes(t.sub))):0)};
 function meta(t){
   if(t.k==="tr")return "Перевод · "+t.acc;
   if(t.k==="lend")return "Қарыз · дал"+(t.acc?" · "+t.acc:" · вручную");
@@ -377,6 +378,15 @@ function del(id){
 }
 
 /* ---------- Разбор ---------- */
+const OPS=/^(.*?)(Поступление со своего счета|Поступление со|Перевод|Покупка|Пополнение|Снятие|Разное)\s*(\([+\-−]\))?\s*$/;
+function splitOp(raw){
+  const m=raw.match(OPS);
+  if(!m)return{n:raw.replace(/\s*\([+\-−]\)\s*$/,"").trim()||"Операция"};
+  const name=m[1].trim(),op=m[2];
+  let n=name;
+  if(/^(Покупка|Пополнение|Снятие|Разное)$/.test(op))n=op+(name?" "+name:"");
+  return{n:n||op};
+}
 function parse(t){
   return t.split("\n").map(l=>l.trim()).filter(Boolean).map(l=>{
     let d=null;const dm=l.match(/^(\d{4}-\d{2}-\d{2})\s+(.*)$/);if(dm){d=dm[1];l=dm[2]}
@@ -384,7 +394,8 @@ function parse(t){
     if(!m)return null;
     const n=num(m[2]);
     if(isNaN(n))return null;
-    return{d,a:(m[1]===""||m[1]==="+")?n:-n,n:m[3].replace(/\s*\([+\-]\)\s*$/,"").replace(/^(.+?)\.?\s*перевод.*$/i,"$1").trim()};
+    const raw=m[3].trim(),o=splitOp(raw);
+    return{d,a:(m[1]===""||m[1]==="+")?n:-n,n:o.n,raw};
   }).filter(Boolean);
 }
 function debtors(){
@@ -408,7 +419,8 @@ function sugFor(it){
 function vSort(){
   if(items.length&&i<items.length){
     const it=items[i],neg=it.a<0;let b="";
-    if(cur.s==="sub")b=`<div class="q">Личное · на что?</div><div class="grid">${SUB.map((s,x)=>`<button onclick="pickSub(${x})">${s}</button>`).join("")}</div>`;
+    if(cur.s==="sub")b=neg?`<div class="q">Личное · на что?</div><div class="grid">${SUB.map((s,x)=>`<button onclick="pickSub(${x})">${s}</button>`).join("")}</div>`
+      :`<div class="q">Личное · за что пришли деньги?</div><div class="mut">Если друзья вернули свою часть, выберите категорию: она уменьшит реальный расход</div><div class="grid">${SUB.map((s,x)=>`<button onclick="pickSub(${x})">${s}<small>вернули часть</small></button>`).join("")}<button onclick="pickInc()">${INC}<small>зарплата, подарок и т.п.</small></button></div>`;
     else if(cur.s==="work")b=`<div class="q">Работа · что это?</div><div class="grid">${WORK.map((w,x)=>`<button onclick="pickWork(${x})">${w[0]}${w[0]!==w[1]?`<small>со счёта ${w[1]}</small>`:""}</button>`).join("")}</div>`;
     else if(cur.s==="who"){
       const ds=debtors().filter(d=>neg||d.owed>0).sort((a,b)=>b.owed-a.owed);whoList=ds;
@@ -424,7 +436,7 @@ function vSort(){
       <button class="ghost" onclick="pickDebt()">${IC.debt}${neg?"Дал в долг":"Вернули долг · выбрать кто"}</button>`;
     }
     return `<div class="card sc"><div class="top"><span>${dlabel(it.d)}</span><span>${i+1} из ${items.length}</span></div><div class="bar"><i style="width:${i/items.length*100}%"></i></div>
-    <div class="amt ${cls(it.a)}">${sg(it.a)}</div><div class="who">${esc(it.n)}</div>${b}
+    <div class="amt ${cls(it.a)}">${sg(it.a)}</div><div class="who">${esc(it.n)}</div>${OWN.test(it.n)?`<div class="mut">Перевод со своего счёта (депозит). Не нужен — нажмите «Пропустить»</div>`:""}${b}
     <div class="nav2"><button onclick="back()" ${i||cur.s!=="top"?"":"disabled"}>← Назад</button><button onclick="skip()">Пропустить</button></div>
     ${items.length>1&&!retHome?`<button class="link" onclick="stopEarly()">Сохранить разобранное и закончить позже</button>`:""}</div>`;
   }
@@ -434,7 +446,7 @@ function vSort(){
   <label class="f"><span>Дата выписки (если в строках нет даты)</span><input type="date" id="dt" value="${day}"></label>
   <label class="f"><span>Операции, каждая с новой строки</span><textarea id="t" placeholder="-6000 Лаура У.&#10;+25000 Айгерим К.">${esc(draft)}</textarea></label></details>
   <button class="p" style="margin-top:12px" onclick="start()">Начать разбор</button></div>
-  <div class="mut" style="padding:0 4px">Уже сохранённые операции и переводы с депозита пропускаются сами, поэтому одну выписку можно загружать повторно.</div>`;
+  <div class="mut" style="padding:0 4px 12px">Уже сохранённые операции пропускаются сами, поэтому одну выписку можно загружать повторно.</div>${vReport()}`;
 }
 function start(fromPdf){
   const te=$("#t"),de=$("#dt");
@@ -442,15 +454,16 @@ function start(fromPdf){
   const p=parse(draft);
   if(!p.length){msg="Не нашёл операций. Формат строки: -6000 Имя";render();return}
   const have={};S.tx.forEach(t=>{const k=t.d+"|"+t.a+"|"+t.n;have[k]=(have[k]||0)+1});
-  let dup=0,own=0;
-  items=p.map(x=>({...x,d:x.d||day})).filter(x=>{if(OWN.test(x.n)){own++;return false}const k=x.d+"|"+x.a+"|"+x.n;if(have[k]>0){have[k]--;dup++;return false}return true});
+  let dup=0;
+  items=p.map(x=>({...x,d:x.d||day})).filter(x=>{const k=x.d+"|"+x.a+"|"+x.n;if(have[k]>0){have[k]--;dup++;return false}return true});
   i=0;cur={s:"top"};retHome=false;
-  pre=msg=[dup?`Пропущено уже сохранённых: ${dup}`:"",own?`Пропущено переводов с депозита и между своими счетами: ${own}`:""].filter(Boolean).join(". ");
+  pre=msg=dup?`Пропущено уже сохранённых: ${dup}`:"";
   if(!items.length){msg=msg||"Новых операций нет";render();return}
   render();top0();
 }
 function nxt(){i++;cur={s:"top"};if(i>=items.length)finish();else{render();top0()}}
-function pickTop(k){const it=items[i];if(k==="p"){it.acc="Личное";if(it.a<0){cur.s="sub";render()}else nxt()}else{cur.s="work";render()}}
+function pickTop(k){const it=items[i];if(k==="p"){it.acc="Личное";cur.s="sub";render()}else{cur.s="work";render()}}
+function pickInc(){items[i].sub=INC;nxt()}
 function pickSub(x){items[i].sub=SUB[x];nxt()}
 function pickWork(x){const it=items[i];it.sub=WORK[x][0];it.acc=WORK[x][1];nxt()}
 function pickOther(x){items[i].acc=S.acc[x].n;nxt()}
@@ -465,15 +478,59 @@ function back(){
   if(i>0){i--;clr(items[i]);cur={s:"top"};render()}
 }
 function stopEarly(){if(!confirm(`Сохранить ${i} разобранных? Остальные можно разобрать потом, загрузив ту же выписку.`))return;items=items.slice(0,i);finish()}
+function rLine(t){const raw=t.raw||t.n,sgn=t.a<0?"-":"+";return `${sgn}${Math.round(Math.abs(t.a)*100)/100} ${/\([+\-−]\)\s*$/.test(raw)?raw:raw+" ("+sgn+")"}`}
+function makeReport(done){
+  const ds=[...new Set(done.map(t=>t.d))].sort(),blocks=[],days=[];
+  const gorder=["Доставка","Бонус","Штраф","На сайт","На офис"];
+  ds.forEach(d=>{
+    const L=done.filter(t=>t.d===d),out=[d.slice(8)+"."+d.slice(5,7)+"."+d.slice(0,4)];
+    const biz=L.filter(t=>!t.k&&t.acc&&t.acc!=="Личное");
+    if(biz.length){
+      out.push("БИЗНЕС");
+      const key=t=>gorder.includes(t.sub)?t.sub:t.acc;
+      const keys=[...new Set(biz.map(key))].sort((a,b)=>{const x=gorder.indexOf(a),y=gorder.indexOf(b);return(x<0?99:x)-(y<0?99:y)});
+      keys.forEach(k=>out.push(k+"\n"+biz.filter(t=>key(t)===k).map(rLine).join("\n")));
+    }
+    const per=L.filter(t=>!t.k&&t.acc==="Личное");
+    if(per.length)out.push("ЛИЧНОЕ\n"+per.map(rLine).join("\n"));
+    const dbt=L.filter(t=>t.k==="lend"||t.k==="repay");
+    if(dbt.length)out.push("ҚАРЫЗ\n"+dbt.map(t=>rLine(t)+" — "+(t.p||t.n)).join("\n"));
+    blocks.push(out.join("\n\n"));
+    const po=sum(per.filter(t=>t.a<0)),pb=sum(per.filter(t=>t.a>0&&t.sub!==INC)),pi=sum(per.filter(t=>t.a>0&&t.sub===INC));
+    days.push({d,po,pb,pi,wo:sum(biz.filter(t=>t.a<0))});
+  });
+  return{text:blocks.join("\n\n\n"),days};
+}
+function vReport(){
+  let R=null;try{R=JSON.parse(localStorage.getItem("rep2")||"null")}catch(e){}
+  if(!R||!R.text)return "";
+  return `<div class="card"><div class="ch"><h3>Итог последнего разбора</h3><button class="x" onclick="hideRep()" aria-label="Скрыть итог">${IC.x}</button></div>
+  ${R.days.map(x=>`<div class="dh">${dlabel(x.d)}</div>
+  <div class="sumrow"><span>Личное: потрачено</span><b class="neg">−${fmt(x.po)} ₸</b></div>
+  ${x.pb?`<div class="sumrow"><span>Личное: вернули друзья</span><b class="pos">+${fmt(x.pb)} ₸</b></div>`:""}
+  <div class="sumrow"><span><b>Реальный личный расход</b></span><b>${fmt(x.po-x.pb)} ₸</b></div>
+  ${x.pi?`<div class="sumrow"><span>Личный доход</span><b class="pos">+${fmt(x.pi)} ₸</b></div>`:""}
+  ${x.wo?`<div class="sumrow"><span>Работа: расход</span><b>${fmt(x.wo)} ₸</b></div>`:""}`).join("")}
+  <textarea id="rep" readonly style="height:220px;margin-top:12px;font-size:14px">${esc(R.text)}</textarea>
+  <button class="p" style="margin-top:10px" onclick="copyRep(this)">Скопировать текст</button></div>`;
+}
+function hideRep(){try{localStorage.removeItem("rep2")}catch(e){}render()}
+async function copyRep(btn){
+  const t=$("#rep").value;
+  try{await navigator.clipboard.writeText(t)}catch(e){const el=$("#rep");el.removeAttribute("readonly");el.select();document.execCommand("copy");el.setAttribute("readonly","")}
+  btn.textContent="Скопировано";setTimeout(()=>{btn.textContent="Скопировать текст"},1500);
+}
 function finish(){
   const done=items.filter(t=>!t.skip);
+  if(!retHome&&done.length){try{localStorage.setItem("rep2",JSON.stringify(makeReport(done)))}catch(e){}}
   const links=done.filter(t=>t.link).map(t=>t.link);
-  const ok=done.map(({skip,link,...t})=>({...t,id:uid()}));
+  const ok=done.map(({skip,link,raw,...t})=>({...t,id:uid()}));
   if(links.length){S.tx=S.tx.filter(t=>!links.includes(t.id));links.forEach(id=>q.push({action:"del",id}))}
   if(ok.length)addTx(ok);else{persist();sync()}
   msg=(retHome?"Операция сохранена":`Сохранено операций: ${ok.length}`)+(pre?". "+pre:"");pre="";items=[];draft="";
   if(retHome){retHome=false;tab="home"}
   render();top0();
+  if(tab==="sort"){const e=$("#rep");if(e)setTimeout(()=>e.closest(".card").scrollIntoView({behavior:"smooth"}),50)}
 }
 
 /* ---------- PDF ---------- */
@@ -506,8 +563,12 @@ async function readPdf(file){
       const m=l.match(re);if(!m)return;
       const y=m[3].length===2?"20"+m[3]:m[3],v=num(m[5]);
       if(isNaN(v))return;
-      const nm=m[6].trim().replace(/^Поступление со\s+/i,"").replace(/^(Перевод|Покупка|Пополнение|Снятие|Разное)\s+/i,(a,w)=>/перевод/i.test(w)?"":w+" ");
-      out.push(`${y}-${m[2]}-${m[1]} ${/[+]/.test(m[4])?"+":"-"}${v} ${nm||"Операция"}`);
+      const sgn=/[+]/.test(m[4])?"+":"-";
+      let rest=m[6].trim(),op="";
+      const om=rest.match(/^(Поступление со|Перевод|Покупка|Пополнение|Снятие|Разное)\s*(.*)$/i);
+      if(om){op=om[1];rest=om[2].trim()}
+      if(/^Поступление со$/i.test(op))op="Поступление со своего счета";
+      out.push(`${y}-${m[2]}-${m[1]} ${sgn}${v} ${rest}${op}${op?" ("+sgn+")":""}`.trim());
     });
     if(out.length){draft=out.join("\n");msg=`Найдено операций: ${out.length}`;start(true);return}
     draft=lines.join("\n");msg="Не удалось распознать операции автоматически. Проверьте текст ниже.";
@@ -532,43 +593,55 @@ function ym(o){const d=new Date();d.setDate(1);d.setMonth(d.getMonth()+o);return
 function cmpRows(title,keys,fc,fp){
   const mx=Math.max(1,...keys.map(k=>Math.max(fc(k),fp(k))));
   const rows=keys.map(k=>{const c=fc(k),p=fp(k);if(!c&&!p)return"";const d=p?Math.round((c-p)/p*100):null;
-  return `<div><div class="sumrow" style="border:0;padding-bottom:0"><span>${esc(k)}</span><span><b>${fmt(c)}</b> <span class="mut">было ${fmt(p)}${d===null?"":` · <span class="${d>0?"neg":"pos"}">${d>0?"+":""}${d}%</span>`}</span></span></div><div class="hb"><i style="width:${c/mx*100}%"></i></div></div>`}).join("");
+  return `<div><div class="sumrow" style="border:0;padding-bottom:0"><span>${esc(k)}</span><span><b>${fmt(c)}</b> <span class="mut">было ${fmt(p)}${d===null?"":` · <span class="${d>0?"neg":"pos"}">${d>0?"+":""}${d}%</span>`}</span></span></div><div class="hb"><i style="width:${Math.max(0,c)/mx*100}%"></i></div></div>`}).join("");
   return `<div class="card"><h3 style="margin-bottom:8px">${title}</h3>${rows||'<div class="empty">Пока нет данных</div>'}</div>`;
 }
 let anAll=false;
 function vAn(){
   const tx=S.tx.filter(t=>!t.k),c=ym(0),p=ym(-1);
-  const E=m=>tx.filter(t=>t.a<0&&t.d.startsWith(m)),I=m=>tx.filter(t=>t.a>0&&t.d.startsWith(m));
-  const pe=m=>E(m).filter(t=>t.acc==="Личное"),we=m=>E(m).filter(t=>t.acc&&t.acc!=="Личное");
-  const pc=sum(pe(c)),pp=sum(pe(p)),wc=sum(we(c)),ic_=sum(I(c)),ip=sum(I(p));
-  /* дни, за которые есть загруженные операции */
+  const isBack=t=>t.a>0&&t.acc==="Личное"&&SUB.includes(t.sub);
+  const E=m=>tx.filter(t=>t.a<0&&t.d.startsWith(m)),I=m=>tx.filter(t=>t.a>0&&!isBack(t)&&t.d.startsWith(m));
+  const pe=m=>E(m).filter(t=>t.acc==="Личное"),pb=m=>tx.filter(t=>isBack(t)&&t.d.startsWith(m)),we=m=>E(m).filter(t=>t.acc&&t.acc!=="Личное");
+  const real=m=>sum(pe(m))-sum(pb(m));
+  const pc=real(c),pp=real(p),wc=sum(we(c)),ic_=sum(I(c)),ip=sum(I(p)),bc=sum(pb(c));
   const dset=m=>[...new Set(S.tx.filter(t=>t.k!=="tr"&&t.acc&&t.d.startsWith(m)).map(t=>t.d))];
   const dc=dset(c).length,dp=dset(p).length;
   const avg=dc?pc/dc:0,avgp=dp?pp/dp:0;
-  /* по дням */
-  const pick=t=>t.a<0&&(anAll?!!t.acc:t.acc==="Личное");
-  const byDay={};tx.filter(pick).forEach(t=>byDay[t.d]=(byDay[t.d]||0)+Math.abs(t.a));
+  /* по дням: минус, плюс (вернули) и реальный расход */
+  const D={};
+  tx.forEach(t=>{
+    const x=D[t.d]=D[t.d]||{o:0,b:0,w:0};
+    if(t.a<0&&t.acc==="Личное")x.o+=-t.a;
+    else if(isBack(t))x.b+=t.a;
+    else if(t.a<0&&t.acc)x.w+=-t.a;
+  });
+  const val=x=>x?(x.o-x.b)+(anAll?x.w:0):0;
   const allDays=[...new Set(S.tx.filter(t=>t.k!=="tr"&&t.acc).map(t=>t.d))].sort().reverse().slice(0,14);
-  const mx=Math.max(1,...allDays.map(d=>byDay[d]||0));
-  const peakEntry=Object.entries(byDay).filter(([d])=>d.startsWith(c)).sort((a,b)=>b[1]-a[1])[0];
+  const mx=Math.max(1,...allDays.map(d=>Math.max(0,val(D[d]))));
+  const peak=allDays.filter(d=>d.startsWith(c)).sort((a,b)=>val(D[b])-val(D[a]))[0];
   const wk=t=>WORK.some(w=>w[0]===t.sub)?t.sub:(t.acc==="Офис"?"На офис":t.acc);
   const wkeys=[...new Set(WORK.map(w=>w[0]).concat(we(c).concat(we(p)).map(wk)))];
   const mname=new Date().toLocaleDateString("ru-RU",{month:"long"});
   const diff=pp?Math.round((pc-pp)/pp*100):null;
-  return `<div class="hcard"><div class="lbl">Личные расходы · ${mname}</div><div class="amt">${fmt(pc)} ₸</div>
+  const cat=(m,k)=>sum(pe(m).filter(t=>(t.sub||"Другое")===k))-sum(pb(m).filter(t=>t.sub===k));
+  return `<div class="hcard"><div class="lbl">Реальный личный расход · ${mname}</div><div class="amt">${fmt(pc)} ₸</div>
+  <div class="lbl">потрачено ${fmt(sum(pe(c)))} ₸${bc?` · вернули друзья ${fmt(bc)} ₸`:""}</div>
   <div class="lbl">в прошлом месяце ${fmt(pp)} ₸${diff===null?"":` · ${diff>0?"+":""}${diff}%`}</div>
   <div class="hrow"><div><div class="lbl">В среднем в день</div><b>${fmt(avg)} ₸</b></div><div><div class="lbl">Дней с данными</div><b>${dc}</b></div></div></div>
   <div class="card"><div class="ch"><h3>Расход по дням</h3></div>
-  <div class="seg" style="margin-top:4px"><button class="${anAll?"":"on"}" onclick="anAll=false;render()">Личные</button><button class="${anAll?"on":""}" onclick="anAll=true;render()">Все</button></div>
-  ${allDays.length?allDays.map(d=>{const v=byDay[d]||0;return `<div class="dayrow"><div class="sumrow" style="border:0;padding:8px 0 2px"><span>${dlabel(d)}</span><b>${v?fmt(v)+" ₸":"—"}</b></div><div class="hb" style="margin:0 0 4px"><i style="width:${v/mx*100}%"></i></div></div>`}).join(""):'<div class="empty">Пока нет данных</div>'}
-  <div class="mut" style="margin-top:6px">Показаны последние 14 дней, за которые вы загружали выписку</div></div>
+  <div class="seg" style="margin-top:4px"><button class="${anAll?"":"on"}" onclick="anAll=false;render()">Личные</button><button class="${anAll?"on":""}" onclick="anAll=true;render()">Личные + работа</button></div>
+  ${allDays.length?allDays.map(d=>{const x=D[d]||{o:0,b:0,w:0},v=val(x);
+    return `<div><div class="sumrow" style="border:0;padding:8px 0 0"><span>${dlabel(d)}</span><b>${fmt(v)} ₸</b></div>
+    <div class="mut" style="font-size:13px">личное <span class="neg">−${fmt(x.o)}</span>${x.b?` · вернули <span class="pos">+${fmt(x.b)}</span>`:""}${anAll&&x.w?` · работа −${fmt(x.w)}`:""}</div>
+    <div class="hb" style="margin:4px 0 6px"><i style="width:${Math.max(0,v)/mx*100}%"></i></div></div>`}).join(""):'<div class="empty">Пока нет данных</div>'}
+  <div class="mut" style="margin-top:6px">Последние 14 дней, за которые вы загружали выписку. Реальный расход = потрачено − вернули друзья.</div></div>
   <div class="card">
-  <div class="sumrow"><span>Личные расходы</span><b>${fmt(pc)} ₸</b></div>
+  <div class="sumrow"><span>Реальный личный расход</span><b>${fmt(pc)} ₸</b></div>
   <div class="sumrow"><span>Рабочие расходы</span><b>${fmt(wc)} ₸</b></div>
   <div class="sumrow"><span>Доходы</span><span><b class="pos">${fmt(ic_)} ₸</b> <span class="mut">было ${fmt(ip)}</span></span></div>
   <div class="sumrow"><span>Средний личный расход в прошлом месяце</span><b>${fmt(avgp)} ₸</b></div>
-  ${peakEntry?`<div class="sumrow"><span>Самый затратный день${anAll?"":" (личное)"}</span><b>${dlabel(peakEntry[0])} · ${fmt(peakEntry[1])} ₸</b></div>`:""}</div>
-  ${cmpRows("Личное: на что",SUB,k=>sum(pe(c).filter(t=>(t.sub||"Другое")===k)),k=>sum(pe(p).filter(t=>(t.sub||"Другое")===k)))}
+  ${peak&&val(D[peak])>0?`<div class="sumrow"><span>Самый затратный день</span><b>${dlabel(peak)} · ${fmt(val(D[peak]))} ₸</b></div>`:""}</div>
+  ${cmpRows("Личное: реальный расход",SUB,k=>cat(c,k),k=>cat(p,k))}
   ${cmpRows("Работа: куда",wkeys,k=>sum(we(c).filter(t=>wk(t)===k)),k=>sum(we(p).filter(t=>wk(t)===k)))}`;
 }
 
