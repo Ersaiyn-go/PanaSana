@@ -152,13 +152,23 @@ details[open]>summary::after{transform:rotate(-135deg);margin-bottom:-4px}
 <div id="lock"></div>
 <script>
 /* ---------- настройки учёта ---------- */
-const CORE=["Личное","Доставка","Бонус","Штраф"];
-const SUB=["Еда","Дорога","Развлечения","Одежда","Другое"];
+/* Разбивка по умолчанию. Своя разбивка задаётся в Google Таблице, лист «Настройки»:
+   Группа (кнопка 1-го шага) · Категория (кнопка 2-го шага) · Счёт (откуда списывается). */
+const DEF=[["Личное","Еда","Личное"],["Личное","Дорога","Личное"],["Личное","Развлечения","Личное"],["Личное","Одежда","Личное"],["Личное","Другое","Личное"],
+  ["Бизнес","Доставка","Доставка"],["Бизнес","Бонус","Бонус"],["Бизнес","Штраф","Штраф"],["Бизнес","На сайт","Доставка"],["Бизнес","На офис","Доставка"]].map(([g,c,a])=>({g,c,a}));
 const INC="Доход";
-const WORK=[["Доставка","Доставка"],["На сайт","Доставка"],["На офис","Доставка"],["Бонус","Бонус"],["Штраф","Штраф"]];
+const SET=()=>(S.set&&S.set.length?S.set:DEF);
+const GROUPS=()=>[...new Set(SET().map(r=>r.g))];
+const MAIN=()=>GROUPS()[0];
+const CATS=g=>SET().filter(r=>r.g===g);
+const CORE_=()=>[...new Set(SET().map(r=>r.a))];
+const MAINACC=()=>CATS(MAIN())[0].a;
+function grpOf(t){const s=SET(),r=s.find(r=>r.c===t.sub&&r.a===t.acc)||(t.acc===MAINACC()?{g:MAIN()}:null)||s.find(r=>r.a===t.acc);return r?r.g:(t.acc||"")}
+const isMain=t=>!t.k&&!!t.acc&&grpOf(t)===MAIN();
+const isBack=t=>t.a>0&&isMain(t)&&!!t.sub&&t.sub!==INC;
 const OWN=/депозит|своего сч|свои сч|своих сч/i;
 
-let S={acc:CORE.map(n=>({n,o:0})),tx:[]};
+let S={acc:[...new Set(DEF.map(r=>r.a))].map(n=>({n,o:0})),tx:[],set:[]};
 let cfg={url:"",key:""},q=[],tab="home",items=[],i=0,cur={s:"top"},msg="",draft="",st="",stT=0,busy=false,again=false,lastPull=0;
 let whoList=[],pre="",accSel=null,homePanel=null,detOpen=false,addSign=-1,retHome=false,debtOpen=null,debtMode="repay",ppl=[];
 
@@ -201,7 +211,8 @@ function load(){
   try{q=JSON.parse(localStorage.getItem("q2")||"[]")}catch(e){}
 }
 function persist(){try{localStorage.setItem("led2",JSON.stringify(S));localStorage.setItem("q2",JSON.stringify(q))}catch(e){}}
-function ensureCore(){let ch=false;CORE.forEach(n=>{if(!S.acc.some(a=>a.n===n)){S.acc.push({n,o:0});ch=true}});return ch}
+function prune(){const C=CORE_(),n=S.acc.length;S.acc=S.acc.filter(a=>C.includes(a.n)||a.o||S.tx.some(t=>t.acc===a.n));return S.acc.length!==n}
+function ensureCore(){let ch=false;CORE_().forEach(n=>{if(!S.acc.some(a=>a.n===n)){S.acc.push({n,o:0});ch=true}});return ch}
 function op(o){q.push(o);persist();sync()}
 function addTx(list){S.tx.push(...list);op({action:"add",tx:list})}
 
@@ -234,10 +245,13 @@ async function sync(force){
     while(q.length){await post(q[0]);q.shift();persist();merge()}
     if(force||Date.now()-lastPull>60000){
       const j=await pull();lastPull=Date.now();
+      if(Array.isArray(j.cfg)){const v=j.cfg.filter(x=>x&&x.g&&x.c&&x.a).map(x=>({g:String(x.g),c:String(x.c),a:String(x.a)}));if(v.length)S.set=v}
       if(!q.length){
-        if(j.acc&&j.acc.length)S.acc=j.acc;
+        const tbl=!!(j.acc&&j.acc.length);
+        if(tbl)S.acc=j.acc;
         S.tx=(j.tx||[]).map(clean);
-        if(ensureCore()){q.push({action:"acc",acc:S.acc});again=true}
+        const c1=ensureCore(),c2=prune();
+        if(c1||c2||!tbl){q.push({action:"acc",acc:S.acc});again=true}
         persist();
       }
     }
@@ -282,8 +296,8 @@ function render(){
 
 /* ---------- Счета (главная) ---------- */
 const bal=a=>a.o+S.tx.filter(t=>t.acc===a.n).reduce((s,t)=>s+t.a,0);
-const ordered=()=>CORE.map(n=>S.acc.find(a=>a.n===n)).filter(Boolean).concat(S.acc.filter(a=>!CORE.includes(a.n)));
-const monthOut=n=>{const m=ym(0),L=S.tx.filter(t=>t.acc===n&&!t.k&&t.d.startsWith(m));return sum(L.filter(t=>t.a<0))-(n==="Личное"?sum(L.filter(t=>t.a>0&&SUB.includes(t.sub))):0)};
+const ordered=()=>{const C=CORE_();return C.map(n=>S.acc.find(a=>a.n===n)).filter(Boolean).concat(S.acc.filter(a=>!C.includes(a.n)))};
+const monthOut=n=>{const m=ym(0),L=S.tx.filter(t=>t.acc===n&&!t.k&&t.d.startsWith(m));return sum(L.filter(t=>t.a<0))-sum(L.filter(isBack))};
 function meta(t){
   if(t.k==="tr")return "Перевод · "+t.acc;
   if(t.k==="lend")return "Қарыз · дал"+(t.acc?" · "+t.acc:" · вручную");
@@ -298,7 +312,7 @@ function dlabel(d){
 }
 function tile(a){
   const b=bal(a),x=S.acc.indexOf(a),m=monthOut(a.n),txt=money(b);
-  return `<button class="tile${a.n==="Личное"?" hero":""}" onclick="openAcc(${x})"><span class="tn">${esc(a.n)}${IC.chev}</span><span class="tb${b<0?" neg":""}${txt.length>11?" s":""}">${txt}</span><span class="tm">${m?"расход за месяц "+fmt(m)+" ₸":"в этом месяце расходов нет"}</span></button>`;
+  return `<button class="tile${a.n===MAINACC()?" hero":""}" onclick="openAcc(${x})"><span class="tn">${esc(a.n)}${IC.chev}</span><span class="tb${b<0?" neg":""}${txt.length>11?" s":""}">${txt}</span><span class="tm">${m?"расход за месяц "+fmt(m)+" ₸":"в этом месяце расходов нет"}</span></button>`;
 }
 function vHome(){
   if(accSel!==null&&S.acc[accSel])return vAccOne();
@@ -317,7 +331,7 @@ function vHome(){
   <div class="card total"><span class="mut">Всего на всех счетах</span><b class="${tot<0?"neg":""}">${money(tot)}</b></div>
   <details class="card" ${detOpen?"open":""} ontoggle="detOpen=this.open"><summary>Начальные остатки и счета</summary>
   <div class="mut" style="margin:8px 0 4px">Сумма на счёте до первой внесённой операции</div>
-  ${ordered().map(a=>{const x=S.acc.indexOf(a);return `<div class="row"><span>${esc(a.n)}</span><span class="rr"><input class="oi" type="number" inputmode="decimal" value="${a.o}" onchange="setO(${x},this.value)" aria-label="Начальный остаток ${esc(a.n)}">${CORE.includes(a.n)?'<span style="width:40px"></span>':`<button class="x" onclick="delAcc(${x})" aria-label="Удалить счёт ${esc(a.n)}">${IC.x}</button>`}</span></div>`}).join("")}
+  ${ordered().map(a=>{const x=S.acc.indexOf(a);return `<div class="row"><span>${esc(a.n)}</span><span class="rr"><input class="oi" type="number" inputmode="decimal" value="${a.o}" onchange="setO(${x},this.value)" aria-label="Начальный остаток ${esc(a.n)}">${CORE_().includes(a.n)?'<span style="width:40px"></span>':`<button class="x" onclick="delAcc(${x})" aria-label="Удалить счёт ${esc(a.n)}">${IC.x}</button>`}</span></div>`}).join("")}
   <div class="sm"><input id="na" placeholder="Новый счёт" aria-label="Название нового счёта"><button onclick="addAcc()" style="flex:0 0 auto">Добавить</button></div></details>`;
 }
 function vAccOne(){
@@ -325,7 +339,7 @@ function vAccOne(){
   const tx=S.tx.filter(t=>t.acc===a.n).slice().sort((x,y)=>x.d<y.d?1:x.d>y.d?-1:0).slice(0,200);
   let h="",ld="";tx.forEach(t=>{if(t.d!==ld){ld=t.d;h+=`<div class="dh">${dlabel(t.d)}</div>`}h+=txRow(t)});
   return `<button class="back" onclick="accSel=null;render()">${IC.back}Все счета</button>
-  <div class="tile wide${a.n==="Личное"?" hero":""}"><span class="tn">Остаток</span><span class="tb${b<0?" neg":""}">${money(b)}</span><span class="tm">начальный ${money(a.o)} · расход за месяц ${fmt(m)} ₸</span></div>
+  <div class="tile wide${a.n===MAINACC()?" hero":""}"><span class="tn">Остаток</span><span class="tb${b<0?" neg":""}">${money(b)}</span><span class="tm">начальный ${money(a.o)} · расход за месяц ${fmt(m)} ₸</span></div>
   <div class="card">${h||'<div class="empty">По этому счёту операций пока нет</div>'}</div>`;
 }
 function openAcc(x){accSel=x;homePanel=null;render();top0()}
@@ -347,7 +361,7 @@ function addManual(){
 function vTr(){
   const o=ordered(),opt=(sel)=>o.map(a=>`<option value="${S.acc.indexOf(a)}" ${a.n===sel?"selected":""}>${esc(a.n)}</option>`).join("");
   return `<div class="card"><h3>Перевод между счетами</h3><div class="mut">Не считается ни расходом, ни доходом</div>
-  <div class="grid"><label class="f" style="margin:0"><span>Откуда</span><select id="trf">${opt("Личное")}</select></label><label class="f" style="margin:0"><span>Куда</span><select id="trt">${opt("Доставка")}</select></label></div>
+  <div class="grid"><label class="f" style="margin:0"><span>Откуда</span><select id="trf">${opt(MAINACC())}</select></label><label class="f" style="margin:0"><span>Куда</span><select id="trt">${opt(CORE_()[1]||"")}</select></label></div>
   <div class="grid" style="margin-top:0"><label class="f"><span>Сумма, ₸</span><input id="tra" type="number" inputmode="decimal" placeholder="0"></label><label class="f"><span>Дата</span><input id="trd" type="date" value="${day}"></label></div>
   <div class="sm"><button onclick="panel('tr')">Отмена</button><button class="p" onclick="addTr()">Перевести</button></div></div>`;
 }
@@ -419,9 +433,11 @@ function sugFor(it){
 function vSort(){
   if(items.length&&i<items.length){
     const it=items[i],neg=it.a<0;let b="";
-    if(cur.s==="sub")b=neg?`<div class="q">Личное · на что?</div><div class="grid">${SUB.map((s,x)=>`<button onclick="pickSub(${x})">${s}</button>`).join("")}</div>`
-      :`<div class="q">Личное · за что пришли деньги?</div><div class="mut">Если друзья вернули свою часть, выберите категорию: она уменьшит реальный расход</div><div class="grid">${SUB.map((s,x)=>`<button onclick="pickSub(${x})">${s}<small>вернули часть</small></button>`).join("")}<button onclick="pickInc()">${INC}<small>зарплата, подарок и т.п.</small></button></div>`;
-    else if(cur.s==="work")b=`<div class="q">Работа · что это?</div><div class="grid">${WORK.map((w,x)=>`<button onclick="pickWork(${x})">${w[0]}${w[0]!==w[1]?`<small>со счёта ${w[1]}</small>`:""}</button>`).join("")}</div>`;
+    if(cur.s==="cat"){
+      const g=it.grp,cs=CATS(g),multi=new Set(cs.map(r=>r.a)).size>1,isM=g===MAIN();
+      b=`<div class="q">${esc(g)} · ${neg?"на что?":"за что пришли деньги?"}</div>${!neg&&isM?`<div class="mut">Если друзья вернули свою часть, выберите категорию: она уменьшит реальный расход</div>`:""}
+      <div class="grid">${cs.map((r,x)=>`<button onclick="pickCat(${x})">${esc(r.c)}${!neg&&isM?"<small>вернули часть</small>":multi&&r.a!==r.c?`<small>счёт ${esc(r.a)}</small>`:""}</button>`).join("")}${!neg?`<button onclick="pickInc()">${INC}<small>зарплата, подарок и т.п.</small></button>`:""}</div>`;
+    }
     else if(cur.s==="who"){
       const ds=debtors().filter(d=>neg||d.owed>0).sort((a,b)=>b.owed-a.owed);whoList=ds;
       b=`<div class="q">${neg?"Кому дали в долг?":"Кто вернул долг?"}</div>
@@ -429,9 +445,9 @@ function vSort(){
       <div class="sm"><input id="who" value="${ds.length?"":esc(it.n)}" placeholder="Имя"><button class="p" style="width:auto;flex:0 0 auto;margin:0" onclick="pickWho()">Готово</button></div>`;
     }
     else{
-      const s=sugFor(it),others=S.acc.filter(a=>!CORE.includes(a.n));
+      const s=sugFor(it),others=S.acc.filter(a=>!CORE_().includes(a.n));
       b=`${s?`<button class="sug" onclick="pickSug()">${IC.debt}<span><b>${esc(s.p.n)} вернул(а) долг</b><br><span class="mut">${s.man?"уже отмечено вручную, свяжу без дубля":"был(а) должен(на) "+fmt(s.p.owed)+" ₸"}</span></span></button>`:""}
-      <div class="big"><button class="bp" onclick="pickTop('p')">Личное</button><button class="bw" onclick="pickTop('w')">Работа</button></div>
+      <div class="big">${GROUPS().map((g,x)=>`<button class="${x?"bw":"bp"}" onclick="pickGrp(${x})">${esc(g)}</button>`).join("")}</div>
       ${others.length?`<div class="grid">${others.map(a=>`<button onclick="pickOther(${S.acc.indexOf(a)})">${esc(a.n)}</button>`).join("")}</div>`:""}
       <button class="ghost" onclick="pickDebt()">${IC.debt}${neg?"Дал в долг":"Вернули долг · выбрать кто"}</button>`;
     }
@@ -462,17 +478,16 @@ function start(fromPdf){
   render();top0();
 }
 function nxt(){i++;cur={s:"top"};if(i>=items.length)finish();else{render();top0()}}
-function pickTop(k){const it=items[i];if(k==="p"){it.acc="Личное";cur.s="sub";render()}else{cur.s="work";render()}}
-function pickInc(){items[i].sub=INC;nxt()}
-function pickSub(x){items[i].sub=SUB[x];nxt()}
-function pickWork(x){const it=items[i];it.sub=WORK[x][0];it.acc=WORK[x][1];nxt()}
+function pickGrp(x){const it=items[i],g=GROUPS()[x],cs=CATS(g);it.grp=g;if(cs.length===1&&it.a<0){it.sub=cs[0].c;it.acc=cs[0].a;nxt();return}cur.s="cat";render()}
+function pickCat(x){const it=items[i],r=CATS(it.grp)[x];it.sub=r.c;it.acc=r.a;nxt()}
+function pickInc(){const it=items[i];it.sub=INC;it.acc=CATS(it.grp)[0].a;nxt()}
 function pickOther(x){items[i].acc=S.acc[x].n;nxt()}
-function pickDebt(){const it=items[i];it.k=it.a<0?"lend":"repay";it.acc="Личное";cur.s="who";render()}
+function pickDebt(){const it=items[i];it.k=it.a<0?"lend":"repay";it.acc=MAINACC();cur.s="who";render()}
 function pickWhoX(x){const it=items[i];it.p=whoList[x].n;if(it.k==="repay"){const m=findMan(it.p,it.a);if(m)it.link=m.id}nxt()}
 function pickWho(){const it=items[i];it.p=$("#who").value.trim()||it.n;if(it.k==="repay"){const m=findMan(it.p,it.a);if(m)it.link=m.id}nxt()}
-function pickSug(){const it=items[i],s=sugFor(it);it.k="repay";it.acc="Личное";it.p=s.p.n;if(s.man)it.link=s.man.id;nxt()}
+function pickSug(){const it=items[i],s=sugFor(it);it.k="repay";it.acc=MAINACC();it.p=s.p.n;if(s.man)it.link=s.man.id;nxt()}
 function skip(){items[i].skip=true;nxt()}
-function clr(it){["skip","k","sub","p","acc","link"].forEach(f=>delete it[f])}
+function clr(it){["skip","k","sub","p","acc","link","grp"].forEach(f=>delete it[f])}
 function back(){
   if(cur.s!=="top"){clr(items[i]);cur={s:"top"};render();return}
   if(i>0){i--;clr(items[i]);cur={s:"top"};render()}
@@ -480,37 +495,38 @@ function back(){
 function stopEarly(){if(!confirm(`Сохранить ${i} разобранных? Остальные можно разобрать потом, загрузив ту же выписку.`))return;items=items.slice(0,i);finish()}
 function rLine(t){const raw=t.raw||t.n,sgn=t.a<0?"-":"+";return `${sgn}${Math.round(Math.abs(t.a)*100)/100} ${/\([+\-−]\)\s*$/.test(raw)?raw:raw+" ("+sgn+")"}`}
 function makeReport(done){
-  const ds=[...new Set(done.map(t=>t.d))].sort(),blocks=[],days=[];
-  const gorder=["Доставка","Бонус","Штраф","На сайт","На офис"];
+  const ds=[...new Set(done.map(t=>t.d))].sort(),blocks=[],days=[],M=MAIN();
   ds.forEach(d=>{
     const L=done.filter(t=>t.d===d),out=[d.slice(8)+"."+d.slice(5,7)+"."+d.slice(0,4)];
-    const biz=L.filter(t=>!t.k&&t.acc&&t.acc!=="Личное");
-    if(biz.length){
-      out.push("БИЗНЕС");
-      const key=t=>gorder.includes(t.sub)?t.sub:t.acc;
-      const keys=[...new Set(biz.map(key))].sort((a,b)=>{const x=gorder.indexOf(a),y=gorder.indexOf(b);return(x<0?99:x)-(y<0?99:y)});
-      keys.forEach(k=>out.push(k+"\n"+biz.filter(t=>key(t)===k).map(rLine).join("\n")));
-    }
-    const per=L.filter(t=>!t.k&&t.acc==="Личное");
-    if(per.length)out.push("ЛИЧНОЕ\n"+per.map(rLine).join("\n"));
+    const plain=L.filter(t=>!t.k&&t.acc);
+    const gs=[...new Set(GROUPS().concat(plain.map(grpOf)))].filter(g=>g!==M);
+    gs.forEach(g=>{
+      const rows=plain.filter(t=>grpOf(t)===g);if(!rows.length)return;
+      const order=CATS(g).map(r=>r.c),key=t=>order.includes(t.sub)?t.sub:t.acc;
+      const keys=[...new Set(rows.map(key))].sort((a,b)=>{const x=order.indexOf(a),y=order.indexOf(b);return(x<0?99:x)-(y<0?99:y)});
+      out.push(g.toUpperCase());
+      keys.forEach(k=>out.push(k+"\n"+rows.filter(t=>key(t)===k).map(rLine).join("\n")));
+    });
+    const per=plain.filter(t=>grpOf(t)===M);
+    if(per.length)out.push(M.toUpperCase()+"\n"+per.map(rLine).join("\n"));
     const dbt=L.filter(t=>t.k==="lend"||t.k==="repay");
     if(dbt.length)out.push("ҚАРЫЗ\n"+dbt.map(t=>rLine(t)+" — "+(t.p||t.n)).join("\n"));
     blocks.push(out.join("\n\n"));
     const po=sum(per.filter(t=>t.a<0)),pb=sum(per.filter(t=>t.a>0&&t.sub!==INC)),pi=sum(per.filter(t=>t.a>0&&t.sub===INC));
-    days.push({d,po,pb,pi,wo:sum(biz.filter(t=>t.a<0))});
+    days.push({d,po,pb,pi,wo:sum(plain.filter(t=>grpOf(t)!==M&&t.a<0))});
   });
-  return{text:blocks.join("\n\n\n"),days};
+  return{text:blocks.join("\n\n\n"),days,m:M};
 }
 function vReport(){
   let R=null;try{R=JSON.parse(localStorage.getItem("rep2")||"null")}catch(e){}
   if(!R||!R.text)return "";
   return `<div class="card"><div class="ch"><h3>Итог последнего разбора</h3><button class="x" onclick="hideRep()" aria-label="Скрыть итог">${IC.x}</button></div>
   ${R.days.map(x=>`<div class="dh">${dlabel(x.d)}</div>
-  <div class="sumrow"><span>Личное: потрачено</span><b class="neg">−${fmt(x.po)} ₸</b></div>
-  ${x.pb?`<div class="sumrow"><span>Личное: вернули друзья</span><b class="pos">+${fmt(x.pb)} ₸</b></div>`:""}
-  <div class="sumrow"><span><b>Реальный личный расход</b></span><b>${fmt(x.po-x.pb)} ₸</b></div>
-  ${x.pi?`<div class="sumrow"><span>Личный доход</span><b class="pos">+${fmt(x.pi)} ₸</b></div>`:""}
-  ${x.wo?`<div class="sumrow"><span>Работа: расход</span><b>${fmt(x.wo)} ₸</b></div>`:""}`).join("")}
+  <div class="sumrow"><span>${esc(R.m||"Личное")}: потрачено</span><b class="neg">−${fmt(x.po)} ₸</b></div>
+  ${x.pb?`<div class="sumrow"><span>${esc(R.m||"Личное")}: вернули друзья</span><b class="pos">+${fmt(x.pb)} ₸</b></div>`:""}
+  <div class="sumrow"><span><b>Реальный расход · ${esc(R.m||"Личное")}</b></span><b>${fmt(x.po-x.pb)} ₸</b></div>
+  ${x.pi?`<div class="sumrow"><span>Доход</span><b class="pos">+${fmt(x.pi)} ₸</b></div>`:""}
+  ${x.wo?`<div class="sumrow"><span>Остальные группы: расход</span><b>${fmt(x.wo)} ₸</b></div>`:""}`).join("")}
   <textarea id="rep" readonly style="height:220px;margin-top:12px;font-size:14px">${esc(R.text)}</textarea>
   <button class="p" style="margin-top:10px" onclick="copyRep(this)">Скопировать текст</button></div>`;
 }
@@ -524,7 +540,7 @@ function finish(){
   const done=items.filter(t=>!t.skip);
   if(!retHome&&done.length){try{localStorage.setItem("rep2",JSON.stringify(makeReport(done)))}catch(e){}}
   const links=done.filter(t=>t.link).map(t=>t.link);
-  const ok=done.map(({skip,link,raw,...t})=>({...t,id:uid()}));
+  const ok=done.map(({skip,link,raw,grp,...t})=>({...t,id:uid()}));
   if(links.length){S.tx=S.tx.filter(t=>!links.includes(t.id));links.forEach(id=>q.push({action:"del",id}))}
   if(ok.length)addTx(ok);else{persist();sync()}
   msg=(retHome?"Операция сохранена":`Сохранено операций: ${ok.length}`)+(pre?". "+pre:"");pre="";items=[];draft="";
@@ -598,20 +614,18 @@ function cmpRows(title,keys,fc,fp){
 }
 let anAll=false;
 function vAn(){
-  const tx=S.tx.filter(t=>!t.k),c=ym(0),p=ym(-1);
-  const isBack=t=>t.a>0&&t.acc==="Личное"&&SUB.includes(t.sub);
+  const tx=S.tx.filter(t=>!t.k),c=ym(0),p=ym(-1),M=MAIN(),ml=M.toLowerCase();
   const E=m=>tx.filter(t=>t.a<0&&t.d.startsWith(m)),I=m=>tx.filter(t=>t.a>0&&!isBack(t)&&t.d.startsWith(m));
-  const pe=m=>E(m).filter(t=>t.acc==="Личное"),pb=m=>tx.filter(t=>isBack(t)&&t.d.startsWith(m)),we=m=>E(m).filter(t=>t.acc&&t.acc!=="Личное");
+  const pe=m=>E(m).filter(isMain),pb=m=>tx.filter(t=>isBack(t)&&t.d.startsWith(m)),we=m=>E(m).filter(t=>t.acc&&!isMain(t));
   const real=m=>sum(pe(m))-sum(pb(m));
-  const pc=real(c),pp=real(p),wc=sum(we(c)),ic_=sum(I(c)),ip=sum(I(p)),bc=sum(pb(c));
+  const pc=real(c),pp=real(p),ic_=sum(I(c)),ip=sum(I(p)),bc=sum(pb(c));
   const dset=m=>[...new Set(S.tx.filter(t=>t.k!=="tr"&&t.acc&&t.d.startsWith(m)).map(t=>t.d))];
   const dc=dset(c).length,dp=dset(p).length;
   const avg=dc?pc/dc:0,avgp=dp?pp/dp:0;
-  /* по дням: минус, плюс (вернули) и реальный расход */
   const D={};
   tx.forEach(t=>{
     const x=D[t.d]=D[t.d]||{o:0,b:0,w:0};
-    if(t.a<0&&t.acc==="Личное")x.o+=-t.a;
+    if(t.a<0&&isMain(t))x.o+=-t.a;
     else if(isBack(t))x.b+=t.a;
     else if(t.a<0&&t.acc)x.w+=-t.a;
   });
@@ -619,30 +633,34 @@ function vAn(){
   const allDays=[...new Set(S.tx.filter(t=>t.k!=="tr"&&t.acc).map(t=>t.d))].sort().reverse().slice(0,14);
   const mx=Math.max(1,...allDays.map(d=>Math.max(0,val(D[d]))));
   const peak=allDays.filter(d=>d.startsWith(c)).sort((a,b)=>val(D[b])-val(D[a]))[0];
-  const wk=t=>WORK.some(w=>w[0]===t.sub)?t.sub:(t.acc==="Офис"?"На офис":t.acc);
-  const wkeys=[...new Set(WORK.map(w=>w[0]).concat(we(c).concat(we(p)).map(wk)))];
   const mname=new Date().toLocaleDateString("ru-RU",{month:"long"});
   const diff=pp?Math.round((pc-pp)/pp*100):null;
-  const cat=(m,k)=>sum(pe(m).filter(t=>(t.sub||"Другое")===k))-sum(pb(m).filter(t=>t.sub===k));
-  return `<div class="hcard"><div class="lbl">Реальный личный расход · ${mname}</div><div class="amt">${fmt(pc)} ₸</div>
+  const mcats=CATS(M).map(r=>r.c);
+  const cat=(m,k)=>sum(pe(m).filter(t=>(mcats.includes(t.sub)?t.sub:mcats[mcats.length-1])===k))-sum(pb(m).filter(t=>t.sub===k));
+  const others=[...new Set(GROUPS().concat(we(c).concat(we(p)).map(grpOf)))].filter(g=>g!==M);
+  const gsum=(m,g)=>sum(we(m).filter(t=>grpOf(t)===g));
+  const grpCard=g=>{const order=CATS(g).map(r=>r.c),key=t=>order.includes(t.sub)?t.sub:t.acc,L=m=>we(m).filter(t=>grpOf(t)===g);
+    const keys=[...new Set(order.concat(L(c).concat(L(p)).map(key)))];
+    return cmpRows(esc(g)+": куда",keys,k=>sum(L(c).filter(t=>key(t)===k)),k=>sum(L(p).filter(t=>key(t)===k)))};
+  return `<div class="hcard"><div class="lbl">Реальный расход · ${esc(M)} · ${mname}</div><div class="amt">${fmt(pc)} ₸</div>
   <div class="lbl">потрачено ${fmt(sum(pe(c)))} ₸${bc?` · вернули друзья ${fmt(bc)} ₸`:""}</div>
   <div class="lbl">в прошлом месяце ${fmt(pp)} ₸${diff===null?"":` · ${diff>0?"+":""}${diff}%`}</div>
   <div class="hrow"><div><div class="lbl">В среднем в день</div><b>${fmt(avg)} ₸</b></div><div><div class="lbl">Дней с данными</div><b>${dc}</b></div></div></div>
   <div class="card"><div class="ch"><h3>Расход по дням</h3></div>
-  <div class="seg" style="margin-top:4px"><button class="${anAll?"":"on"}" onclick="anAll=false;render()">Личные</button><button class="${anAll?"on":""}" onclick="anAll=true;render()">Личные + работа</button></div>
+  <div class="seg" style="margin-top:4px"><button class="${anAll?"":"on"}" onclick="anAll=false;render()">${esc(M)}</button><button class="${anAll?"on":""}" onclick="anAll=true;render()">Все группы</button></div>
   ${allDays.length?allDays.map(d=>{const x=D[d]||{o:0,b:0,w:0},v=val(x);
     return `<div><div class="sumrow" style="border:0;padding:8px 0 0"><span>${dlabel(d)}</span><b>${fmt(v)} ₸</b></div>
-    <div class="mut" style="font-size:13px">личное <span class="neg">−${fmt(x.o)}</span>${x.b?` · вернули <span class="pos">+${fmt(x.b)}</span>`:""}${anAll&&x.w?` · работа −${fmt(x.w)}`:""}</div>
+    <div class="mut" style="font-size:13px">${esc(ml)} <span class="neg">−${fmt(x.o)}</span>${x.b?` · вернули <span class="pos">+${fmt(x.b)}</span>`:""}${anAll&&x.w?` · остальное −${fmt(x.w)}`:""}</div>
     <div class="hb" style="margin:4px 0 6px"><i style="width:${Math.max(0,v)/mx*100}%"></i></div></div>`}).join(""):'<div class="empty">Пока нет данных</div>'}
   <div class="mut" style="margin-top:6px">Последние 14 дней, за которые вы загружали выписку. Реальный расход = потрачено − вернули друзья.</div></div>
   <div class="card">
-  <div class="sumrow"><span>Реальный личный расход</span><b>${fmt(pc)} ₸</b></div>
-  <div class="sumrow"><span>Рабочие расходы</span><b>${fmt(wc)} ₸</b></div>
+  <div class="sumrow"><span>Реальный расход · ${esc(M)}</span><b>${fmt(pc)} ₸</b></div>
+  ${others.map(g=>`<div class="sumrow"><span>${esc(g)}: расход</span><b>${fmt(gsum(c,g))} ₸</b></div>`).join("")}
   <div class="sumrow"><span>Доходы</span><span><b class="pos">${fmt(ic_)} ₸</b> <span class="mut">было ${fmt(ip)}</span></span></div>
-  <div class="sumrow"><span>Средний личный расход в прошлом месяце</span><b>${fmt(avgp)} ₸</b></div>
+  <div class="sumrow"><span>В среднем в день, прошлый месяц</span><b>${fmt(avgp)} ₸</b></div>
   ${peak&&val(D[peak])>0?`<div class="sumrow"><span>Самый затратный день</span><b>${dlabel(peak)} · ${fmt(val(D[peak]))} ₸</b></div>`:""}</div>
-  ${cmpRows("Личное: реальный расход",SUB,k=>cat(c,k),k=>cat(p,k))}
-  ${cmpRows("Работа: куда",wkeys,k=>sum(we(c).filter(t=>wk(t)===k)),k=>sum(we(p).filter(t=>wk(t)===k)))}`;
+  ${cmpRows(esc(M)+": реальный расход",mcats,k=>cat(c,k),k=>cat(p,k))}
+  ${others.map(grpCard).join("")}`;
 }
 
 /* ---------- Қарыз дәптер ---------- */
@@ -695,13 +713,16 @@ function vSet(){
   <label class="f"><span>Ссылка /exec</span><input id="cu" placeholder="https://script.google.com/macros/s/.../exec" value="${esc(cfg.url)}"></label>
   <label class="f"><span>Пароль</span><input id="ck" placeholder="Пароль" value="${esc(cfg.key)}"></label>
   <button class="p" style="margin-top:12px" onclick="saveCfg()">Сохранить и синхронизировать</button>
-  ${cfg.url?`<button style="width:100%;margin-top:8px" onclick="sync(true)">Обновить данные из таблицы</button>`:""}
+  ${cfg.url?`<button style="width:100%;margin-top:8px" onclick="refreshAll()">Обновить данные из таблицы</button>`:""}
   <div class="mut" id="stx" style="margin-top:10px">${esc(stLong())}</div></div>
+  <div class="card"><h3>Разбивка счетов</h3><div class="mut">${cfg.url?"Меняется в Google Таблице, лист «Настройки»: Группа · Категория · Счёт. После правки нажмите «Обновить данные из таблицы».":"Подключите Google Таблицу, чтобы задать свою разбивку на листе «Настройки»."}</div>
+  ${GROUPS().map(g=>`<div class="dh">${esc(g)}${g===MAIN()?" · главная":""}</div>${CATS(g).map(r=>`<div class="row"><span>${esc(r.c)}</span><span class="mut">счёт ${esc(r.a)}</span></div>`).join("")}`).join("")}</div>
   <div class="card"><h3>PIN-код</h3><div class="mut">${hasPin()?"PIN включён. Чтобы отключить, введите текущий PIN.":"Защита входа в приложение, 4 цифры"}</div>
   <input id="pn" type="password" inputmode="numeric" maxlength="4" placeholder="4 цифры" style="margin-top:10px" aria-label="PIN"><button class="p" style="margin-top:10px" onclick="${hasPin()?"offPin()":"setPin()"}">${hasPin()?"Отключить PIN":"Установить PIN"}</button><div class="mut" id="pst" style="margin-top:8px">Если забудете PIN, очистите данные сайта в браузере: всё вернётся из Google Таблицы.</div></div>
   <details class="card"><summary>Перенос из старой версии</summary><div class="mut" style="margin-top:8px">Вставьте данные из старого приложения (Счета → «Данные для переноса»)</div>
   <textarea id="imp" style="margin-top:8px"></textarea><button class="p" style="margin-top:10px" onclick="doImport()">Импортировать</button><div class="mut" id="impst" style="margin-top:6px"></div></details>`;
 }
+async function refreshAll(){await sync(true);render()}
 async function saveCfg(){
   cfg={url:$("#cu").value.trim(),key:$("#ck").value.trim()};
   try{localStorage.setItem("cfg2",JSON.stringify(cfg))}catch(e){}
@@ -710,10 +731,10 @@ async function saveCfg(){
   try{
     const j=await pull();
     if(S.tx.length)q.push({action:"add",tx:S.tx});
-    if(!(j.acc&&j.acc.length))q.push({action:"acc",acc:S.acc});
     persist();
   }catch(e){st="Ошибка: "+e.message;paintSt();return}
-  sync(true);
+  await sync(true);
+  if(tab==="set")render();
 }
 function doImport(){
   const el=$("#impst");
