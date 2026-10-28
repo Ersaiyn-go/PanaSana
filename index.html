@@ -74,8 +74,8 @@ label.f>span{display:block;font-size:13px;color:var(--mut);margin-bottom:4px}
 .tile.wide{width:100%;min-height:0;margin-bottom:12px;cursor:default}
 .tile.wide .tb{font-size:32px;margin-top:10px}
 
-.qa{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
-.qa button{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:13px;font-weight:600;padding:12px 4px;border-radius:16px}
+.qa{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px}
+.qa button{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:12px;padding:12px 2px;font-weight:600;padding:12px 4px;border-radius:16px}
 .qa button svg{color:var(--ac)}
 .qa button.on{background:var(--soft);border-color:var(--ac)}
 
@@ -201,7 +201,8 @@ const IC={
   swap:ic('<path d="M7 4L3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/>'),
   x:ic('<path d="M6 6l12 12M18 6L6 18"/>',18),
   back:ic('<path d="M15 5l-7 7 7 7"/>',20),
-  chev:ic('<path d="M9 5l7 7-7 7"/>',16)
+  chev:ic('<path d="M9 5l7 7-7 7"/>',16),
+  check:ic('<path d="M4 12.5l5 5L20 6.5"/>')
 };
 
 /* ---------- хранение ---------- */
@@ -211,7 +212,7 @@ function load(){
   try{q=JSON.parse(localStorage.getItem("q2")||"[]")}catch(e){}
 }
 function persist(){try{localStorage.setItem("led2",JSON.stringify(S));localStorage.setItem("q2",JSON.stringify(q))}catch(e){}}
-function prune(){const C=CORE_(),n=S.acc.length;S.acc=S.acc.filter(a=>C.includes(a.n)||a.o||S.tx.some(t=>t.acc===a.n));return S.acc.length!==n}
+function prune(){const C=CORE_(),n=S.acc.length;S.acc=S.acc.filter(a=>C.includes(a.n)||a.o||S.tx.some(t=>t.acc===a.n&&real_(t)));return S.acc.length!==n}
 function ensureCore(){let ch=false;CORE_().forEach(n=>{if(!S.acc.some(a=>a.n===n)){S.acc.push({n,o:0});ch=true}});return ch}
 function op(o){q.push(o);persist();sync()}
 function addTx(list){S.tx.push(...list);op({action:"add",tx:list})}
@@ -295,11 +296,16 @@ function render(){
 }
 
 /* ---------- Счета (главная) ---------- */
-const bal=a=>a.o+S.tx.filter(t=>t.acc===a.n).reduce((s,t)=>s+t.a,0);
+const real_=t=>t.k!=="snap";
+const bal=a=>a.o+S.tx.filter(t=>t.acc===a.n&&real_(t)).reduce((s,t)=>s+t.a,0);
+const balAt=(a,d)=>a.o+S.tx.filter(t=>t.acc===a.n&&real_(t)&&t.d<=d).reduce((s,t)=>s+t.a,0);
+const accsOf=str=>String(str||"").split("+").map(x=>x.trim()).filter(Boolean);
+const sumAt=(names,d)=>names.reduce((s,n)=>{const a=S.acc.find(x=>x.n===n);return s+(a?balAt(a,d):0)},0);
 const ordered=()=>{const C=CORE_();return C.map(n=>S.acc.find(a=>a.n===n)).filter(Boolean).concat(S.acc.filter(a=>!C.includes(a.n)))};
 const monthOut=n=>{const m=ym(0),L=S.tx.filter(t=>t.acc===n&&!t.k&&t.d.startsWith(m));return sum(L.filter(t=>t.a<0))-sum(L.filter(isBack))};
 function meta(t){
   if(t.k==="tr")return "Перевод · "+t.acc;
+  if(t.k==="adj")return "Корректировка по сверке · "+t.acc;
   if(t.k==="lend")return "Қарыз · дал"+(t.acc?" · "+t.acc:" · вручную");
   if(t.k==="repay")return "Қарыз · вернули"+(t.acc?" · "+t.acc:" · вручную");
   return [t.acc,t.sub].filter(Boolean).join(" · ");
@@ -317,18 +323,20 @@ function tile(a){
 function vHome(){
   if(accSel!==null&&S.acc[accSel])return vAccOne();
   const tot=S.acc.reduce((s,a)=>s+bal(a),0);
-  const list=S.tx.filter(t=>t.d===day),dn=list.filter(t=>t.k!=="tr"&&t.acc).reduce((s,t)=>s+t.a,0);
+  const list=S.tx.filter(t=>t.d===day&&real_(t)),dn=list.filter(t=>t.k!=="tr"&&t.k!=="adj"&&t.acc).reduce((s,t)=>s+t.a,0);
   return `${msg?`<div class="note">${esc(msg)}</div>`:""}
   <div class="tiles">${ordered().map(tile).join("")}</div>
   <div class="qa">
     <button onclick="go('sort')">${IC.doc}<span>Выписка</span></button>
     <button class="${homePanel==="add"?"on":""}" onclick="panel('add')">${IC.plus}<span>Операция</span></button>
     <button class="${homePanel==="tr"?"on":""}" onclick="panel('tr')">${IC.swap}<span>Перевод</span></button>
+    <button class="${homePanel==="ck"?"on":""}" onclick="panel('ck')">${IC.check}<span>Сверка</span></button>
   </div>
-  ${homePanel==="add"?vAdd():""}${homePanel==="tr"?vTr():""}
+  ${homePanel==="add"?vAdd():""}${homePanel==="tr"?vTr():""}${homePanel==="ck"?vCheck():""}
   <div class="card"><div class="ch"><h3>${dlabel(day)}</h3><input type="date" value="${day}" onchange="day=this.value||today();render()" aria-label="Дата"></div>
   ${list.length?list.map(txRow).join("")+`<div class="row"><span class="mut">Итог дня</span><b class="${cls(dn)}">${sg(dn)}</b></div>`:'<div class="empty">За этот день операций нет</div>'}</div>
-  <div class="card total"><span class="mut">Всего на всех счетах</span><b class="${tot<0?"neg":""}">${money(tot)}</b></div>
+  ${vEod()}
+  <div class="card total"><span class="mut">Всего на всех счетах сейчас</span><b class="${tot<0?"neg":""}">${money(tot)}</b></div>
   <details class="card" ${detOpen?"open":""} ontoggle="detOpen=this.open"><summary>Начальные остатки и счета</summary>
   <div class="mut" style="margin:8px 0 4px">Сумма на счёте до первой внесённой операции</div>
   ${ordered().map(a=>{const x=S.acc.indexOf(a);return `<div class="row"><span>${esc(a.n)}</span><span class="rr"><input class="oi" type="number" inputmode="decimal" value="${a.o}" onchange="setO(${x},this.value)" aria-label="Начальный остаток ${esc(a.n)}">${CORE_().includes(a.n)?'<span style="width:40px"></span>':`<button class="x" onclick="delAcc(${x})" aria-label="Удалить счёт ${esc(a.n)}">${IC.x}</button>`}</span></div>`}).join("")}
@@ -336,14 +344,63 @@ function vHome(){
 }
 function vAccOne(){
   const a=S.acc[accSel],b=bal(a),m=monthOut(a.n);
-  const tx=S.tx.filter(t=>t.acc===a.n).slice().sort((x,y)=>x.d<y.d?1:x.d>y.d?-1:0).slice(0,200);
+  const tx=S.tx.filter(t=>t.acc===a.n&&real_(t)).slice().sort((x,y)=>x.d<y.d?1:x.d>y.d?-1:0).slice(0,200);
   let h="",ld="";tx.forEach(t=>{if(t.d!==ld){ld=t.d;h+=`<div class="dh">${dlabel(t.d)}</div>`}h+=txRow(t)});
   return `<button class="back" onclick="accSel=null;render()">${IC.back}Все счета</button>
   <div class="tile wide${a.n===MAINACC()?" hero":""}"><span class="tn">Остаток</span><span class="tb${b<0?" neg":""}">${money(b)}</span><span class="tm">начальный ${money(a.o)} · расход за месяц ${fmt(m)} ₸</span></div>
   <div class="card">${h||'<div class="empty">По этому счёту операций пока нет</div>'}</div>`;
 }
+function vEod(){
+  const o=ordered(),tot=o.reduce((s,a)=>s+balAt(a,day),0);
+  const snaps=S.tx.filter(t=>t.k==="snap"&&t.d===day);
+  return `<div class="card"><h3>Остатки на конец дня · ${dlabel(day).toLowerCase()}</h3><div class="mut">Считается по всем операциям до этого дня включительно. Дату меняйте выше.</div>
+  ${o.map(a=>{const v=balAt(a,day);return `<div class="row"><span>${esc(a.n)}</span><b class="${v<0?"neg":""}">${money(v)}</b></div>`}).join("")}
+  <div class="row"><span class="mut">Всего</span><b>${money(tot)}</b></div>
+  ${snaps.map(t=>{const names=accsOf(t.acc),app=sumAt(names,day),d=t.a-app;
+    return `<div class="note" style="margin:10px 0 0"><b>Сверка: ${esc(names.join(" + "))}</b><br>в банке ${money(t.a)} · в приложении ${money(app)}<br>${Math.round(d)===0?'<span class="pos">совпадает</span>':`<span class="neg">разница ${sg(d)}</span>`}<button class="x" style="float:right;margin-top:-30px" onclick="del('${esc(t.id)}')" aria-label="Удалить сверку">${IC.x}</button></div>`}).join("")}</div>`;
+}
+/* ---------- Сверка с банком ---------- */
+let ck=null;
+function ckInit(){
+  let L=null;try{L=JSON.parse(localStorage.getItem("close2")||"null")}catch(e){}
+  let sel=null;try{sel=JSON.parse(localStorage.getItem("cksel2")||"null")}catch(e){}
+  const names=ordered().map(a=>a.n);
+  if(!sel||!sel.length)sel=[MAINACC()];
+  if(!sel.length)sel=[names[0]];
+  ck={d:L?L.d:day,v:L?String(L.v):"",sel:sel.filter(n=>names.includes(n)),src:L,res:null,to:sel[0]};
+}
+function ckRead(){const d=$("#ckd"),v=$("#cka");if(d)ck.d=d.value||ck.d;if(v)ck.v=v.value;const t=$("#ckto");if(t)ck.to=t.value}
+function ckTog(n){ckRead();ck.sel=ck.sel.includes(n)?ck.sel.filter(x=>x!==n):ck.sel.concat(n);ck.res=null;try{localStorage.setItem("cksel2",JSON.stringify(ck.sel))}catch(e){}render()}
+function vCheck(){
+  if(!ck)ckInit();
+  const app=sumAt(ck.sel,ck.d),L=ck.src;
+  const res=ck.res;
+  return `<div class="card"><h3>Сверка с банком</h3><div class="mut">Отметьте счета, которые лежат на одной карте или депозите, и впишите, сколько там реально было на конец дня.</div>
+  <label class="f"><span>Дата</span><input id="ckd" type="date" value="${ck.d}" onchange="ckRead();ck.res=null;render()"></label>
+  <div class="f" style="margin-top:10px"><span class="mut" style="font-size:13px">Какие счета сверяем</span>
+  ${ordered().map(a=>`<label class="row" style="cursor:pointer"><span style="display:flex;align-items:center;gap:10px"><input type="checkbox" style="width:22px;min-height:22px;margin:0" ${ck.sel.includes(a.n)?"checked":""} onchange="ckTog('${esc(a.n)}')">${esc(a.n)}</span><span class="mut">${money(balAt(a,ck.d))}</span></label>`).join("")}</div>
+  <div class="sumrow"><span>В приложении на конец дня</span><b>${money(app)}</b></div>
+  <label class="f"><span>Реально в банке, ₸</span><input id="cka" type="number" inputmode="decimal" value="${esc(ck.v)}" placeholder="0"></label>
+  ${L?`<div class="mut" style="margin-top:6px">По последней выписке Kaspi Gold на конец ${dlabel(L.d).toLowerCase()}: <b>${money(L.v)}</b></div>`:""}
+  <button class="p" style="margin-top:12px" onclick="ckRun()">Сравнить</button>
+  ${res?`<div class="note" style="margin:12px 0 0">${Math.round(res.diff)===0?`<b class="pos">Совпадает.</b> Всё сходится.`:`<b>Разница ${sg(res.diff)}</b><br>${res.diff>0?"В банке больше, чем в приложении: возможно, не внесён доход или возврат.":"В банке меньше, чем в приложении: возможно, не внесён расход или выписка загружена не за все дни."}`}</div>
+    ${Math.round(res.diff)!==0?`<label class="f"><span>Если причину не найти — списать разницу на счёт</span><select id="ckto">${ck.sel.map(n=>`<option ${n===ck.to?"selected":""}>${esc(n)}</option>`).join("")}</select></label>
+    <button style="width:100%;margin-top:8px" onclick="ckFix()">Исправить остаток на ${sg(res.diff)}</button>`:""}
+    <button style="width:100%;margin-top:8px" onclick="ckSave()">Сохранить сверку на этот день</button>`:""}
+  </div>`;
+}
+function ckRun(){ckRead();const v=num(ck.v);if(!ck.sel.length){alert("Отметьте хотя бы один счёт");return}if(isNaN(v)){alert("Впишите сумму");return}ck.res={diff:v-sumAt(ck.sel,ck.d),v};render()}
+function ckSnap(){const old=S.tx.filter(t=>t.k==="snap"&&t.d===ck.d&&t.acc===ck.sel.join("+"));old.forEach(t=>{q.push({action:"del",id:t.id})});S.tx=S.tx.filter(t=>!old.includes(t));return{id:uid(),d:ck.d,a:ck.res.v,n:"Остаток в банке",acc:ck.sel.join("+"),k:"snap"}}
+function ckSave(){ckRead();const sn=ckSnap();addTx([sn]);day=ck.d;msg="Сверка сохранена";homePanel=null;ck=null;render()}
+function ckFix(){
+  ckRead();const to=ck.to||ck.sel[0],d=ck.res.diff;
+  if(!confirm(`Добавить корректировку ${sg(d)} на счёт «${to}» за ${dlabel(ck.d).toLowerCase()}?`))return;
+  const sn=ckSnap();
+  addTx([{id:uid(),d:ck.d,a:Math.round(d*100)/100,n:"Корректировка по сверке",acc:to,k:"adj"},sn]);
+  day=ck.d;msg=`Остаток исправлен: ${sg(d)} на счёт «${to}»`;homePanel=null;ck=null;render();
+}
 function openAcc(x){accSel=x;homePanel=null;render();top0()}
-function panel(p){homePanel=homePanel===p?null:p;render();if(homePanel==="add"){const e=$("#ma");if(e)e.focus()}}
+function panel(p){homePanel=homePanel===p?null:p;if(homePanel==="ck")ckInit();render();if(homePanel==="add"){const e=$("#ma");if(e)e.focus()}}
 function setSign(v,el){addSign=v;el.parentNode.querySelectorAll("button").forEach(b=>b.classList.toggle("on",b===el))}
 function vAdd(){
   return `<div class="card"><h3>Новая операция</h3><div class="mut">Например, наличные или то, чего нет в выписке</div>
@@ -376,7 +433,7 @@ function addTr(){
 function setO(x,v){S.acc[x].o=num(v)||0;op({action:"acc",acc:S.acc});render()}
 function addAcc(){const n=$("#na").value.trim();if(!n)return;if(S.acc.some(a=>a.n===n)){alert("Такой счёт уже есть");return}S.acc.push({n,o:0});op({action:"acc",acc:S.acc});render()}
 function delAcc(x){
-  const a=S.acc[x],n=S.tx.filter(t=>t.acc===a.n).length;
+  const a=S.acc[x],n=S.tx.filter(t=>t.acc===a.n&&real_(t)).length;
   if(!confirm(`Удалить счёт «${a.n}»?`+(n?`\nПо нему ${n} операций: они останутся в таблице, но перестанут учитываться в остатках.`:"")))return;
   S.acc.splice(x,1);op({action:"acc",acc:S.acc});render();
 }
@@ -527,6 +584,7 @@ function vReport(){
   <div class="sumrow"><span><b>Реальный расход · ${esc(R.m||"Личное")}</b></span><b>${fmt(x.po-x.pb)} ₸</b></div>
   ${x.pi?`<div class="sumrow"><span>Доход</span><b class="pos">+${fmt(x.pi)} ₸</b></div>`:""}
   ${x.wo?`<div class="sumrow"><span>Остальные группы: расход</span><b>${fmt(x.wo)} ₸</b></div>`:""}`).join("")}
+  ${(()=>{let L=null;try{L=JSON.parse(localStorage.getItem("close2")||"null")}catch(e){}return L?`<button style="width:100%;margin-top:12px" onclick="go('home');panel('ck')">${IC.check} Сверить с выпиской: на карте ${money(L.v)}</button>`:""})()}
   <textarea id="rep" readonly style="height:220px;margin-top:12px;font-size:14px">${esc(R.text)}</textarea>
   <button class="p" style="margin-top:10px" onclick="copyRep(this)">Скопировать текст</button></div>`;
 }
@@ -586,6 +644,9 @@ async function readPdf(file){
       if(/^Поступление со$/i.test(op))op="Поступление со своего счета";
       out.push(`${y}-${m[2]}-${m[1]} ${sgn}${v} ${rest}${op}${op?" ("+sgn+")":""}`.trim());
     });
+    let cl=null;
+    lines.forEach(l=>{const m=l.match(/Доступно на (\d{2})\.(\d{2})\.(\d{2,4})\s*:\s*([+\-−])?\s*(\d[\d\s]*(?:[.,]\d{1,2})?)/);if(m&&!cl){const y=m[3].length===2?"20"+m[3]:m[3];cl={d:`${y}-${m[2]}-${m[1]}`,v:(m[4]&&m[4]!=="+"?-1:1)*num(m[5])}}});
+    if(cl&&!isNaN(cl.v)){try{localStorage.setItem("close2",JSON.stringify(cl))}catch(e){}}
     if(out.length){draft=out.join("\n");msg=`Найдено операций: ${out.length}`;start(true);return}
     draft=lines.join("\n");msg="Не удалось распознать операции автоматически. Проверьте текст ниже.";
   }catch(e){msg="Ошибка PDF: "+e.message}
@@ -619,7 +680,7 @@ function vAn(){
   const pe=m=>E(m).filter(isMain),pb=m=>tx.filter(t=>isBack(t)&&t.d.startsWith(m)),we=m=>E(m).filter(t=>t.acc&&!isMain(t));
   const real=m=>sum(pe(m))-sum(pb(m));
   const pc=real(c),pp=real(p),ic_=sum(I(c)),ip=sum(I(p)),bc=sum(pb(c));
-  const dset=m=>[...new Set(S.tx.filter(t=>t.k!=="tr"&&t.acc&&t.d.startsWith(m)).map(t=>t.d))];
+  const dset=m=>[...new Set(S.tx.filter(t=>!["tr","snap","adj"].includes(t.k)&&t.acc&&t.d.startsWith(m)).map(t=>t.d))];
   const dc=dset(c).length,dp=dset(p).length;
   const avg=dc?pc/dc:0,avgp=dp?pp/dp:0;
   const D={};
@@ -630,7 +691,7 @@ function vAn(){
     else if(t.a<0&&t.acc)x.w+=-t.a;
   });
   const val=x=>x?(x.o-x.b)+(anAll?x.w:0):0;
-  const allDays=[...new Set(S.tx.filter(t=>t.k!=="tr"&&t.acc).map(t=>t.d))].sort().reverse().slice(0,14);
+  const allDays=[...new Set(S.tx.filter(t=>!["tr","snap","adj"].includes(t.k)&&t.acc).map(t=>t.d))].sort().reverse().slice(0,14);
   const mx=Math.max(1,...allDays.map(d=>Math.max(0,val(D[d]))));
   const peak=allDays.filter(d=>d.startsWith(c)).sort((a,b)=>val(D[b])-val(D[a]))[0];
   const mname=new Date().toLocaleDateString("ru-RU",{month:"long"});
