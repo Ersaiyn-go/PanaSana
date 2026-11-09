@@ -68,6 +68,7 @@ label.f>span{display:block;font-size:13px;color:var(--mut);margin-bottom:4px}
 .tile .tb{font-size:24px;font-weight:750;letter-spacing:-.02em;margin-top:auto;line-height:1.15}
 .tile .tb.s{font-size:20px}
 .tile .tm{font-size:12px;color:var(--mut)}
+.tiles .tile:last-child:nth-child(odd){grid-column:1/-1;min-height:96px}
 .tile.hero{background:var(--hero);border-color:var(--hero);color:var(--heroTx)}
 .tile.hero .tn,.tile.hero .tm{color:var(--heroMut)}
 .tile.hero .neg{color:#FFB8AC}
@@ -177,6 +178,9 @@ const top0=()=>scrollTo(0,0);
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const fmt=n=>Math.round(Math.abs(n)).toLocaleString("ru-RU");
 const money=n=>(Math.round(n)<0?"−":"")+fmt(n)+" ₸";
+let hide=false;try{hide=localStorage.getItem("hide2")==="1"}catch(e){}
+const mm=n=>hide?"••••• ₸":money(n);
+function toggleHide(){hide=!hide;try{localStorage.setItem("hide2",hide?"1":"0")}catch(e){}render()}
 const sg=n=>(n<0?"−":"+")+fmt(n)+" ₸";
 const cls=n=>n<0?"neg":"pos";
 const iso=d=>new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10);
@@ -198,6 +202,8 @@ const IC={
   set:ic('<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>'),
   doc:ic('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>'),
   plus:ic('<path d="M12 5v14M5 12h14"/>'),
+  eye:ic('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',20),
+  eyeoff:ic('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><path d="M4 4l16 16"/>',20),
   swap:ic('<path d="M7 4L3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/>'),
   x:ic('<path d="M6 6l12 12M18 6L6 18"/>',18),
   back:ic('<path d="M15 5l-7 7 7 7"/>',20),
@@ -290,7 +296,7 @@ function go(t){if(t!==tab)msg="";tab=t;accSel=null;homePanel=null;debtOpen=null;
 function render(){
   $("#nav").innerHTML=`<div>${TABS.map(([k,l,c])=>`<button class="${tab===k?"on":""}" onclick="go('${k}')">${IC[c]}<span>${l}</span></button>`).join("")}</div>`;
   const title={home:accSel!==null&&S.acc[accSel]?S.acc[accSel].n:"Мои счета",sort:"Разбор",an:"Анализ",debt:"Қарыз дәптер",set:"Настройки"}[tab];
-  $("#hd").innerHTML=`<h1>${esc(title)}</h1><button class="dot" id="sdot" onclick="dotTap()"></button>`;
+  $("#hd").innerHTML=`<h1>${esc(title)}</h1><span style="display:flex;gap:8px;flex:none">${tab==="home"?`<button class="dot" onclick="toggleHide()" aria-label="${hide?"Показать суммы":"Скрыть суммы"}">${hide?IC.eyeoff:IC.eye}</button>`:""}<button class="dot" id="sdot" onclick="dotTap()"></button></span>`;
   paintSt();
   $("#app").innerHTML=({home:vHome,sort:vSort,an:vAn,debt:vDebt,set:vSet})[tab]();
 }
@@ -317,8 +323,8 @@ function dlabel(d){
   return new Date(d+"T12:00").toLocaleDateString("ru-RU",{day:"numeric",month:"long",weekday:"short"});
 }
 function tile(a){
-  const b=bal(a),x=S.acc.indexOf(a),m=monthOut(a.n),txt=money(b);
-  return `<button class="tile${a.n===MAINACC()?" hero":""}" onclick="openAcc(${x})"><span class="tn">${esc(a.n)}${IC.chev}</span><span class="tb${b<0?" neg":""}${txt.length>11?" s":""}">${txt}</span><span class="tm">${m?"расход за месяц "+fmt(m)+" ₸":"в этом месяце расходов нет"}</span></button>`;
+  const b=bal(a),x=S.acc.indexOf(a),m=monthOut(a.n),txt=money(b),shown=mm(b);
+  return `<button class="tile${a.n===MAINACC()?" hero":""}" onclick="openAcc(${x})"><span class="tn">${esc(a.n)}${IC.chev}</span><span class="tb${b<0&&!hide?" neg":""}${txt.length>11?" s":""}">${shown}</span><span class="tm">${m?"расход за месяц "+fmt(m)+" ₸":"в этом месяце расходов нет"}</span></button>`;
 }
 function vHome(){
   if(accSel!==null&&S.acc[accSel])return vAccOne();
@@ -336,7 +342,7 @@ function vHome(){
   <div class="card"><div class="ch"><h3>${dlabel(day)}</h3><input type="date" value="${day}" onchange="day=this.value||today();render()" aria-label="Дата"></div>
   ${list.length?list.map(txRow).join("")+`<div class="row"><span class="mut">Итог дня</span><b class="${cls(dn)}">${sg(dn)}</b></div>`:'<div class="empty">За этот день операций нет</div>'}</div>
   ${vEod()}
-  <div class="card total"><span class="mut">Всего на всех счетах сейчас</span><b class="${tot<0?"neg":""}">${money(tot)}</b></div>
+  <div class="card total"><span class="mut">Всего на всех счетах сейчас</span><b class="${tot<0&&!hide?"neg":""}">${mm(tot)}</b></div>
   <details class="card" ${detOpen?"open":""} ontoggle="detOpen=this.open"><summary>Начальные остатки и счета</summary>
   <div class="mut" style="margin:8px 0 4px">Сумма на счёте до первой внесённой операции</div>
   ${ordered().map(a=>{const x=S.acc.indexOf(a);return `<div class="row"><span>${esc(a.n)}</span><span class="rr"><input class="oi" type="number" inputmode="decimal" value="${a.o}" onchange="setO(${x},this.value)" aria-label="Начальный остаток ${esc(a.n)}">${CORE_().includes(a.n)?'<span style="width:40px"></span>':`<button class="x" onclick="delAcc(${x})" aria-label="Удалить счёт ${esc(a.n)}">${IC.x}</button>`}</span></div>`}).join("")}
@@ -347,7 +353,7 @@ function vAccOne(){
   const tx=S.tx.filter(t=>t.acc===a.n&&real_(t)).slice().sort((x,y)=>x.d<y.d?1:x.d>y.d?-1:0).slice(0,200);
   let h="",ld="";tx.forEach(t=>{if(t.d!==ld){ld=t.d;h+=`<div class="dh">${dlabel(t.d)}</div>`}h+=txRow(t)});
   return `<button class="back" onclick="accSel=null;render()">${IC.back}Все счета</button>
-  <div class="tile wide${a.n===MAINACC()?" hero":""}"><span class="tn">Остаток</span><span class="tb${b<0?" neg":""}">${money(b)}</span><span class="tm">начальный ${money(a.o)} · расход за месяц ${fmt(m)} ₸</span></div>
+  <div class="tile wide${a.n===MAINACC()?" hero":""}"><span class="tn">Остаток</span><span class="tb${b<0&&!hide?" neg":""}">${mm(b)}</span><span class="tm">начальный ${money(a.o)} · расход за месяц ${fmt(m)} ₸</span></div>
   <div class="card">${h||'<div class="empty">По этому счёту операций пока нет</div>'}</div>`;
 }
 function vEod(){
