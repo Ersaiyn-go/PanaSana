@@ -360,10 +360,10 @@ function vEod(){
   const o=ordered(),tot=o.reduce((s,a)=>s+balAt(a,day),0);
   const snaps=S.tx.filter(t=>t.k==="snap"&&t.d===day);
   return `<div class="card"><h3>Остатки на конец дня · ${dlabel(day).toLowerCase()}</h3><div class="mut">Считается по всем операциям до этого дня включительно. Дату меняйте выше.</div>
-  ${o.map(a=>{const v=balAt(a,day);return `<div class="row"><span>${esc(a.n)}</span><b class="${v<0?"neg":""}">${money(v)}</b></div>`}).join("")}
-  <div class="row"><span class="mut">Всего</span><b>${money(tot)}</b></div>
+  ${o.map(a=>{const v=balAt(a,day);return `<div class="row"><span>${esc(a.n)}</span><b class="${v<0&&!hide?"neg":""}">${mm(v)}</b></div>`}).join("")}
+  <div class="row"><span class="mut">Всего</span><b>${mm(tot)}</b></div>
   ${snaps.map(t=>{const names=accsOf(t.acc),app=sumAt(names,day),d=t.a-app;
-    return `<div class="note" style="margin:10px 0 0"><b>Сверка: ${esc(names.join(" + "))}</b><br>в банке ${money(t.a)} · в приложении ${money(app)}<br>${Math.round(d)===0?'<span class="pos">совпадает</span>':`<span class="neg">разница ${sg(d)}</span>`}<button class="x" style="float:right;margin-top:-30px" onclick="del('${esc(t.id)}')" aria-label="Удалить сверку">${IC.x}</button></div>`}).join("")}</div>`;
+    return `<div class="note" style="margin:10px 0 0"><b>Сверка: ${esc(names.join(" + "))}</b><br>в банке ${mm(t.a)} · в приложении ${mm(app)}<br>${Math.round(d)===0?'<span class="pos">совпадает</span>':`<span class="neg">разница ${sg(d)}</span>`}<button class="x" style="float:right;margin-top:-30px" onclick="del('${esc(t.id)}')" aria-label="Удалить сверку">${IC.x}</button></div>`}).join("")}</div>`;
 }
 /* ---------- Сверка с банком ---------- */
 let ck=null;
